@@ -5,7 +5,7 @@
 
 set -e  # Exit on error
 
-GITHUB_USERNAME="msawayda"
+GITHUB_USERNAME="mikesawayda-adaptivesoftware"
 
 # Colors for output
 RED='\033[0;31m'
@@ -58,7 +58,9 @@ else
 
     # Push to GitHub
     echo -e "${BLUE}🚀 Pushing to GitHub...${NC}"
-    git push origin main
+    REPO_URL="https://github.com/mikesawayda-adaptivesoftware/Fantasy-Forge.git"
+    git remote add fantasy-forge ${REPO_URL} 2>/dev/null || git remote set-url fantasy-forge ${REPO_URL}
+    git push fantasy-forge main
     echo -e "${GREEN}✅ GitHub updated successfully!${NC}"
 fi
 echo ""
