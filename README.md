@@ -1,134 +1,95 @@
 # 🏈 FantasyForge
 
-A modern NFL fantasy football analysis platform built with Next.js 14, TypeScript, and Tailwind CSS. Get data-driven insights to dominate your fantasy league.
+[![Next.js](https://img.shields.io/badge/Next.js-16-black?style=for-the-badge&logo=next.js)](https://nextjs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-38B2AC?style=for-the-badge&logo=tailwind-css)](https://tailwindcss.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
+![NFL Fantasy Analysis](https://img.shields.io/badge/NFL-Fantasy%20Analysis-10b981?style=for-the-badge&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PC9zdmc+)
 
-![FantasyForge](https://img.shields.io/badge/NFL-Fantasy%20Analysis-10b981?style=for-the-badge&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PC9zdmc+)
+FantasyForge is a high-performance NFL fantasy football analysis platform designed for serious league managers. Built with **Next.js 16 (App Router)**, **React 19**, and **Tailwind CSS 4**, it provides real-time data-driven insights by leveraging the Sleeper API.
 
-## Features
+[Explore Features](#-key-features) • [Getting Started](#-getting-started) • [Deployment](#-docker-deployment) • [Roadmap](#-future-roadmap)
 
-### 🏈 Player Database
-- Search and explore 2,000+ NFL players
-- Filter by position (QB, RB, WR, TE, K, DEF)
-- View detailed player stats, projections, and game logs
-- Real-time data from Sleeper API
+---
+
+## 🌟 Key Features
+
+### 🏈 Advanced Player Database
+- **Deep Search:** Explore 2,000+ active NFL players with sub-second latency.
+- **Granular Filters:** Filter by position (QB, RB, WR, TE, K, DEF) and team status.
+- **Rich Profiles:** View comprehensive career stats, weekly projections, and historical game logs.
+- **Live Data:** Direct integration with [Sleeper API](https://docs.sleeper.com/) ensures you have the latest injury updates and stats.
 
 ### ⚔️ Head-to-Head Comparison
-- Compare any two players side-by-side
-- Visual stat breakdowns with comparison bars
-- See who wins across multiple categories
-- Confidence score for recommendations
+- **Visual Analytics:** Compare any two players side-by-side with interactive stat bars.
+- **Categorical Breakdown:** See exactly where one player edges out the other (e.g., Target Share vs. Redzone Touches).
+- **Confidence Scoring:** Algorithmic determination of which player has the higher floor and ceiling.
 
 ### 🎯 Start/Sit Advisor
-- Input two players you're deciding between
-- Get AI-powered recommendations
-- See reasoning behind the decision
-- Factors in projections, recent form, and injuries
+- **Logic-Driven Recommendations:** Get advice based on matchup difficulty, projections, and recent form.
+- **Transparent Reasoning:** Don't just get a name; see *why* a player is recommended through detailed logic breakdowns.
+- **Context Aware:** Factors in projections, recent volume, and injury designations.
 
-### 🔄 Trade Analyzer
-- Add multiple players to each side
-- Calculate trade value with positional scarcity
-- Clear winner/loser determination
-- Recommendations for fair trades
+### 🔄 Intelligent Trade Analyzer
+- **Multi-Player Swaps:** Support for complex "X for Y" player trades.
+- **Positional Scarcity:** Values players based on their relative strength to their position's average.
+- **Fairness Meter:** Instant determination of winner/loser with suggestions to balance the deal.
 
-## Tech Stack
+---
 
-- **Framework:** Next.js 14 (App Router)
-- **Language:** TypeScript
-- **Styling:** Tailwind CSS
-- **Data Source:** [Sleeper API](https://docs.sleeper.com/)
-- **Fonts:** Inter, JetBrains Mono
+## 🛠️ Tech Stack
 
-## Getting Started
+- **Core:** [Next.js 16](https://nextjs.org/) (App Router) & [React 19](https://react.dev/)
+- **Language:** [TypeScript](https://www.typescriptlang.org/) (Strict Mode)
+- **Styling:** [Tailwind CSS 4](https://tailwindcss.com/)
+- **State & Data:** Server Components & Client-side Caching (1-hour TTL)
+- **Data Source:** [Sleeper API](https://docs.sleeper.com/) (No API Key Required)
+- **Fonts:** Inter & JetBrains Mono
+
+---
+
+## 🚀 Getting Started
 
 ### Prerequisites
-
-- Node.js 18+
-- npm or yarn
+- **Node.js:** 18.x or higher
+- **Package Manager:** npm (v9+) or yarn
 
 ### Installation
 
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/yourusername/fantasy-forge.git
+   cd fantasy-forge
+   ```
+
+2. **Install dependencies:**
+   ```bash
+   npm install
+   ```
+
+3. **Start the development server:**
+   ```bash
+   npm run dev
+   ```
+
+Open [http://localhost:3000](http://localhost:3000) in your browser to start forging your championship team.
+
+---
+
+## 🐳 Docker Deployment
+
+FantasyForge is optimized for containerized environments with standalone output enabled.
+
+### Quick Run
 ```bash
-# Clone or navigate to the project
-cd fantasy-forge
-
-# Install dependencies
-npm install
-
-# Start development server
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) to view the app.
-
-### Build for Production
-
-```bash
-npm run build
-npm start
-```
-
-## Docker Deployment
-
-### Prerequisites
-
-- Docker installed
-- Docker Hub account (for pushing images)
-
-### Build Docker Image Locally
-
-```bash
-cd fantasy-forge
-
-# Build for your local architecture
+# Build the image
 docker build -t fantasy-forge:latest .
 
-# Run locally
+# Run the container
 docker run -d -p 3000:3000 --name fantasy-forge fantasy-forge:latest
 ```
 
-### Build for amd64 (Unraid/x86 Servers)
-
-If you're on Apple Silicon (M1/M2/M3) and deploying to an x86 server:
-
-```bash
-# Create buildx builder (one-time setup)
-docker buildx create --name multiplatform --use
-
-# Build and push for amd64
-docker buildx build --platform linux/amd64 \
-  -t yourusername/fantasy-forge:latest \
-  --push .
-```
-
-### Push to Docker Hub
-
-```bash
-# Log in to Docker Hub
-docker login
-
-# Tag the image
-docker tag fantasy-forge:latest yourusername/fantasy-forge:latest
-
-# Push to Docker Hub
-docker push yourusername/fantasy-forge:latest
-```
-
-### Run on Server (Unraid, etc.)
-
-```bash
-# Pull the image
-docker pull yourusername/fantasy-forge:latest
-
-# Run on custom port (e.g., 3081)
-docker run -d \
-  --name fantasy-forge \
-  --restart unless-stopped \
-  -p 3081:3000 \
-  yourusername/fantasy-forge:latest
-```
-
 ### Docker Compose
-
 ```yaml
 version: '3.8'
 
@@ -141,79 +102,74 @@ services:
       - "3081:3000"
 ```
 
-### Nginx Reverse Proxy
-
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name fantasy.yourdomain.com;
-
-    location / {
-        proxy_pass http://localhost:3081;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
-    }
-}
+### Multi-Platform Builds (Apple Silicon to x86)
+If you're on Apple Silicon and deploying to an x86 server:
+```bash
+docker buildx build --platform linux/amd64 -t yourusername/fantasy-forge:latest --push .
 ```
 
-## Project Structure
+---
 
-```
+## 📁 Project Structure
+
+```text
 fantasy-forge/
-├── app/
-│   ├── layout.tsx          # Root layout with navigation
-│   ├── page.tsx            # Home dashboard
-│   ├── players/
-│   │   ├── page.tsx        # Player search & list
-│   │   └── [id]/page.tsx   # Player detail view
-│   ├── compare/page.tsx    # Head-to-head comparison
-│   ├── start-sit/page.tsx  # Start/Sit advisor
-│   └── trade/page.tsx      # Trade analyzer
-├── components/
-│   └── ui/                 # Reusable UI components
-├── lib/
-│   ├── sleeper.ts          # Sleeper API client
-│   ├── scoring.ts          # Fantasy scoring logic
-│   └── utils.ts            # Helper functions
-└── types/
-    └── index.ts            # TypeScript interfaces
+├── app/                # Next.js 16 App Router (Pages & Layouts)
+│   ├── compare/        # H2H Player Comparison
+│   ├── my-leagues/     # League Dashboard & Roster View
+│   ├── players/        # Player Search & Detail Pages
+│   ├── start-sit/      # Recommendation Engine
+│   └── trade/          # Trade Analyzer tool
+├── components/         # Reusable React components
+│   └── ui/             # Atomic UI elements (Stat bars, Cards, etc.)
+├── lib/                # Core logic & Utils
+│   ├── sleeper.ts      # API Wrapper & Cache Management
+│   ├── scoring.ts      # PPR Scoring Engine
+│   └── utils.ts        # Shared helper functions
+├── types/              # TypeScript Interfaces (Sleeper & App)
+└── public/             # Static assets & Icons
 ```
 
-## API
+---
 
-FantasyForge uses the free [Sleeper API](https://docs.sleeper.com/) for player data:
+## 📊 Scoring System
 
-- **Players:** `/players/nfl` - All NFL player information
-- **Stats:** `/stats/nfl/regular/{year}/{week}` - Weekly stats
-- **Projections:** `/projections/nfl/regular/{year}/{week}` - Weekly projections
+FantasyForge uses standard **PPR (Points Per Reception)** scoring by default:
 
-No API key required!
+| Category | Value |
+| :--- | :--- |
+| **Passing** | 0.04 pts/yd, 4 pts/TD, -2 pts/INT |
+| **Rushing** | 0.1 pts/yd, 6 pts/TD |
+| **Receiving** | 1.0 pt/REC, 0.1 pts/yd, 6 pts/TD |
+| **Kicking** | 3 pts/FG, 1 pt/XP |
+| **Defense** | 1 pt/Sack, 2 pts/INT/FR, 6 pts/TD, 10 pts for Shutout |
 
-## Scoring System
+---
 
-Default PPR (Points Per Reception) scoring:
-- Passing: 0.04 pts/yard, 4 pts/TD, -2 pts/INT
-- Rushing: 0.1 pts/yard, 6 pts/TD
-- Receiving: 1 pt/reception, 0.1 pts/yard, 6 pts/TD
-- Kicking: 3 pts/FG, 1 pt/XP
+## 🗺️ Future Roadmap
 
-## Design
+- [ ] **Waiver Wire Wizard:** AI analysis of top available free agents based on league needs.
+- [ ] **Dynasty Mode:** Age-adjusted values and draft pick trading support.
+- [ ] **Live Matchup Tracking:** Real-time updates for active NFL games.
+- [ ] **Multi-League Support:** View all your Sleeper leagues in a single unified dashboard.
 
-Inspired by [ProgrammersBestFriend](../ProgrammersBestFriend), featuring:
-- Dark theme with turf green and championship gold accents
-- Glass-morphism card effects
-- Smooth animations and transitions
-- Responsive mobile-first design
+---
 
-## License
+## 🤝 Contributing
 
-MIT
+Contributions make the open-source community an amazing place to learn, inspire, and create. Any contributions you make are **greatly appreciated**.
+
+1. Fork the Project
+2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the Branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+---
+
+## 📜 License
+
+Distributed under the MIT License. See `LICENSE` for more information.
 
 ---
 
