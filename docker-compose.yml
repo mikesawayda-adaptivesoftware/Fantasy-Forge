@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  fantasy-forge:
+    build: .
+    image: fantasy-forge:latest
+    container_name: fantasy-forge
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_TELEMETRY_DISABLED=1
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    # Resource limits (optional, adjust as needed for Unraid)
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    # Labels for reverse proxy (uncomment and configure as needed)
+    # labels:
+    #   # For Traefik
+    #   - "traefik.enable=true"
+    #   - "traefik.http.routers.fantasy-forge.rule=Host(`fantasy.yourdomain.com`)"
+    #   - "traefik.http.routers.fantasy-forge.entrypoints=websecure"
+    #   - "traefik.http.routers.fantasy-forge.tls.certresolver=cloudflare"
+    #   # For nginx-proxy-manager
+    #   - "nginx.proxy.host=fantasy.yourdomain.com"
+    #   - "nginx.proxy.port=3000"
+
