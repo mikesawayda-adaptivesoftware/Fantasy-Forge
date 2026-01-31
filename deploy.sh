@@ -6,6 +6,7 @@
 set -e  # Exit on error
 
 GITHUB_USERNAME="mikesawayda-adaptivesoftware"
+REPO_URL="https://github.com/mikesawayda-adaptivesoftware/Fantasy-Forge.git"
 
 # Colors for output
 RED='\033[0;31m'
@@ -21,26 +22,19 @@ echo ""
 
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-APP_NAME="fantasy-forge"
+APP_DIR="$SCRIPT_DIR"
 
-# Navigate to the project root (EverythingHub)
-cd "$SCRIPT_DIR/.."
-PROJECT_ROOT=$(pwd)
-APP_DIR="$PROJECT_ROOT/$APP_NAME"
-
-echo -e "${YELLOW}📁 Project root: $PROJECT_ROOT${NC}"
 echo -e "${YELLOW}📁 App directory: $APP_DIR${NC}"
 echo ""
 
-# Check for uncommitted changes in the fantasy-forge directory only
-cd "$PROJECT_ROOT"
-if [[ -z $(git status -s "$APP_NAME/") ]]; then
-    echo -e "${YELLOW}⚠️  No changes to commit in $APP_NAME/${NC}"
+# Check for uncommitted changes
+cd "$APP_DIR"
+if [[ -z $(git status -s) ]]; then
+    echo -e "${YELLOW}⚠️  No changes to commit${NC}"
 else
     # Get commit message from user or use default
     if [ -z "$1" ]; then
-        # Generate a default commit message with timestamp
-        COMMIT_MSG="Update fantasy-forge app - $(date '+%Y-%m-%d %H:%M')"
+        COMMIT_MSG="Update Fantasy-Forge - $(date '+%Y-%m-%d %H:%M')"
         echo -e "${YELLOW}💬 Using default commit message: ${COMMIT_MSG}${NC}"
     else
         COMMIT_MSG="$1"
@@ -48,9 +42,9 @@ else
     fi
     echo ""
 
-    # Stage only changes in the fantasy-forge directory
-    echo -e "${BLUE}📦 Staging changes in $APP_NAME/...${NC}"
-    git add "$APP_NAME/"
+    # Stage all changes
+    echo -e "${BLUE}📦 Staging changes...${NC}"
+    git add -A
 
     # Commit
     echo -e "${BLUE}✍️  Committing...${NC}"
@@ -58,16 +52,22 @@ else
 
     # Push to GitHub
     echo -e "${BLUE}🚀 Pushing to GitHub...${NC}"
-    REPO_URL="https://github.com/mikesawayda-adaptivesoftware/Fantasy-Forge.git"
-    git remote add fantasy-forge ${REPO_URL} 2>/dev/null || git remote set-url fantasy-forge ${REPO_URL}
-    git push fantasy-forge main
+    git remote set-url origin ${REPO_URL} 2>/dev/null || git remote add origin ${REPO_URL}
+    git push origin main
     echo -e "${GREEN}✅ GitHub updated successfully!${NC}"
 fi
 echo ""
 
 # Login to GitHub Container Registry
 echo -e "${BLUE}🔑 Logging into ghcr.io...${NC}"
-gh auth token | docker login ghcr.io -u "$GITHUB_USERNAME" --password-stdin
+if [ -z "$GITHUB_CR_PAT" ]; then
+    echo -e "${RED}❌ Error: GITHUB_CR_PAT environment variable is not set!${NC}"
+    echo -e "${YELLOW}Please set it with: export GITHUB_CR_PAT='your_token_here'${NC}"
+    echo -e "${YELLOW}Get a token from: https://github.com/settings/tokens${NC}"
+    echo -e "${YELLOW}Required scopes: write:packages, read:packages${NC}"
+    exit 1
+fi
+echo "$GITHUB_CR_PAT" | docker login ghcr.io -u "$GITHUB_USERNAME" --password-stdin
 echo -e "${GREEN}✅ Logged into ghcr.io${NC}"
 echo ""
 
@@ -117,10 +117,10 @@ echo -e "     ${GREEN}docker rm -f fantasy-forge 2>/dev/null || true${NC}"
 echo ""
 echo -e "  5. Run the container:"
 echo ""
-echo -e "     ${GREEN}docker run -d \\\\${NC}"
-echo -e "     ${GREEN}  --name fantasy-forge \\\\${NC}"
-echo -e "     ${GREEN}  --restart unless-stopped \\\\${NC}"
-echo -e "     ${GREEN}  -p 3085:3000 \\\\${NC}"
+echo -e "     ${GREEN}docker run -d \\${NC}"
+echo -e "     ${GREEN}  --name fantasy-forge \\${NC}"
+echo -e "     ${GREEN}  --restart unless-stopped \\${NC}"
+echo -e "     ${GREEN}  -p 3085:3000 \\${NC}"
 echo -e "     ${GREEN}  ghcr.io/${GITHUB_USERNAME}/fantasy-forge:latest${NC}"
 echo ""
 echo -e "  6. Watch logs:"
@@ -131,10 +131,10 @@ echo -e "${YELLOW}TO UPDATE (after future deploys):${NC}"
 echo ""
 echo -e "     ${GREEN}docker pull ghcr.io/${GITHUB_USERNAME}/fantasy-forge:latest${NC}"
 echo -e "     ${GREEN}docker rm -f fantasy-forge 2>/dev/null || true${NC}"
-echo -e "     ${GREEN}docker run -d \\\\${NC}"
-echo -e "     ${GREEN}       --name fantasy-forge \\\\${NC}"
-echo -e "     ${GREEN}       --restart unless-stopped \\\\${NC}"
-echo -e "     ${GREEN}       -p 3085:3000 \\\\${NC}"
+echo -e "     ${GREEN}docker run -d \\${NC}"
+echo -e "     ${GREEN}       --name fantasy-forge \\${NC}"
+echo -e "     ${GREEN}       --restart unless-stopped \\${NC}"
+echo -e "     ${GREEN}       -p 3085:3000 \\${NC}"
 echo -e "     ${GREEN}       ghcr.io/${GITHUB_USERNAME}/fantasy-forge:latest${NC}"
 echo ""
 echo -e "${BLUE}========================================${NC}"
