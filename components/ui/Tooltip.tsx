@@ -1,83 +1,55 @@
 'use client';
 
-import { useState, useRef, useEffect, ReactNode } from 'react';
+import { useRef, useState, ReactNode } from 'react';
 
 interface TooltipProps {
   content: string;
   children: ReactNode;
 }
 
+type Placement = 'center' | 'left' | 'right';
+
+const TOOLTIP_MAX_WIDTH = 448; // max-w-md
+
 export default function Tooltip({ content, children }: TooltipProps) {
-  const [isVisible, setIsVisible] = useState(false);
-  const [position, setPosition] = useState<'center' | 'left' | 'right'>('center');
+  const [placement, setPlacement] = useState<Placement | null>(null);
   const triggerRef = useRef<HTMLDivElement>(null);
-  const tooltipRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (isVisible && triggerRef.current && tooltipRef.current) {
-      const triggerRect = triggerRef.current.getBoundingClientRect();
-      const tooltipRect = tooltipRef.current.getBoundingClientRect();
-      const viewportWidth = window.innerWidth;
-      
-      // Check if tooltip would overflow left
-      const leftEdge = triggerRect.left + (triggerRect.width / 2) - (tooltipRect.width / 2);
-      // Check if tooltip would overflow right
-      const rightEdge = triggerRect.left + (triggerRect.width / 2) + (tooltipRect.width / 2);
-      
-      if (leftEdge < 10) {
-        setPosition('left'); // Align to left edge of trigger
-      } else if (rightEdge > viewportWidth - 10) {
-        setPosition('right'); // Align to right edge of trigger
-      } else {
-        setPosition('center'); // Center align
-      }
-    }
-  }, [isVisible]);
-
-  const getTooltipClasses = () => {
-    const base = "absolute bottom-full mb-3 px-5 py-3 bg-field-elevated border border-field-border rounded-xl shadow-xl text-base text-text-primary z-50 animate-fade-in min-w-[280px] max-w-md leading-relaxed";
-    
-    switch (position) {
-      case 'left':
-        return `${base} left-0`;
-      case 'right':
-        return `${base} right-0`;
-      default:
-        return `${base} left-1/2 -translate-x-1/2`;
-    }
+  const show = () => {
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (!rect) return setPlacement('center');
+    const width = Math.min(TOOLTIP_MAX_WIDTH, window.innerWidth - 20);
+    const center = rect.left + rect.width / 2;
+    if (center - width / 2 < 10) setPlacement('left');
+    else if (center + width / 2 > window.innerWidth - 10) setPlacement('right');
+    else setPlacement('center');
   };
 
-  const getArrowClasses = () => {
-    const base = "absolute top-full -mt-px border-4 border-transparent border-t-field-border";
-    
-    switch (position) {
-      case 'left':
-        return `${base} left-3`;
-      case 'right':
-        return `${base} right-3`;
-      default:
-        return `${base} left-1/2 -translate-x-1/2`;
-    }
-  };
+  const position = placement === 'left' ? 'left-0' : placement === 'right' ? 'right-0' : 'left-1/2 -translate-x-1/2';
+  const arrow = placement === 'left' ? 'left-3' : placement === 'right' ? 'right-3' : 'left-1/2 -translate-x-1/2';
 
   return (
     <div className="relative inline-flex items-center" ref={triggerRef}>
       <div
-        onMouseEnter={() => setIsVisible(true)}
-        onMouseLeave={() => setIsVisible(false)}
+        onMouseEnter={show}
+        onMouseLeave={() => setPlacement(null)}
+        onFocus={show}
+        onBlur={() => setPlacement(null)}
+        tabIndex={0}
         className="cursor-help"
       >
         {children}
       </div>
-      
-      {isVisible && (
-        <div ref={tooltipRef} className={getTooltipClasses()}>
+
+      {placement && (
+        <div
+          role="tooltip"
+          className={`absolute bottom-full mb-3 px-4 py-3 bg-field-elevated border border-field-border rounded-xl shadow-xl text-sm text-text-primary z-50 animate-fade-in w-max max-w-[min(28rem,calc(100vw-20px))] leading-relaxed ${position}`}
+        >
           {content}
-          {/* Arrow */}
-          <div className={getArrowClasses()} />
+          <div className={`absolute top-full -mt-px border-4 border-transparent border-t-field-border ${arrow}`} />
         </div>
       )}
     </div>
   );
 }
-

@@ -1,18 +1,28 @@
-version: '3.8'
+# On Unraid this runs the image GitHub Actions publishes on every merge to main.
+# Watchtower pulls new :latest images and restarts the container.
+#
+#   docker compose pull && docker compose up -d   # run the published image
+#   docker compose up -d --build                 # build locally instead
+#
+# The image is private: the host must be logged in to ghcr.io (and Watchtower
+# must be given those credentials) to pull it.
 
 services:
   fantasy-forge:
     build: .
-    image: fantasy-forge:latest
+    image: ghcr.io/mikesawayda-adaptivesoftware/fantasy-forge:latest
     container_name: fantasy-forge
     restart: unless-stopped
+    labels:
+      # Opt in when Watchtower runs with WATCHTOWER_LABEL_ENABLE=true
+      - "com.centurylinklabs.watchtower.enable=true"
     ports:
-      - "3000:3000"
+      - "${HOST_PORT:-3000}:3000"
     environment:
       - NODE_ENV=production
       - NEXT_TELEMETRY_DISABLED=1
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -24,8 +34,7 @@ services:
           memory: 512M
         reservations:
           memory: 256M
-    # Labels for reverse proxy (uncomment and configure as needed)
-    # labels:
+    # Reverse proxy labels (add to the labels list above as needed)
     #   # For Traefik
     #   - "traefik.enable=true"
     #   - "traefik.http.routers.fantasy-forge.rule=Host(`fantasy.yourdomain.com`)"

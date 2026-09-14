@@ -1,170 +1,180 @@
-// Sleeper API Player type
-export interface SleeperPlayer {
-  player_id: string;
-  first_name: string;
-  last_name: string;
-  full_name?: string;
-  position: Position;
-  team: string | null;
-  age?: number;
-  years_exp?: number;
-  college?: string;
-  height?: string;
-  weight?: string;
-  status?: string;
-  injury_status?: string | null;
-  injury_body_part?: string | null;
-  injury_notes?: string | null;
-  number?: number;
-  depth_chart_position?: string;
-  depth_chart_order?: number;
-  fantasy_positions?: string[];
-  search_rank?: number;
-  espn_id?: string;
-  yahoo_id?: string;
-  rotowire_id?: number;
-  sportradar_id?: string;
-}
+// ==========================================
+// CORE PLAYER TYPES
+// ==========================================
 
 // Position types
 export type Position = 'QB' | 'RB' | 'WR' | 'TE' | 'K' | 'DEF' | 'DL' | 'LB' | 'DB';
 
 export const FANTASY_POSITIONS: Position[] = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
 
-// Player stats from Sleeper
-export interface PlayerStats {
+/**
+ * A single stat line from Sleeper (weekly stats or projections).
+ * Keys are Sleeper stat keys (pass_yd, rec, fum_lost, pts_allow_0, ...), which
+ * line up 1:1 with league `scoring_settings` keys.
+ */
+export type StatLine = { [stat: string]: number | undefined };
+
+/** Weekly stats or projections keyed by player ID */
+export type StatsByPlayer = Record<string, StatLine>;
+
+// Sleeper API Player type (raw)
+export interface SleeperPlayer {
   player_id: string;
-  week: number;
-  season: string;
-  season_type: string;
-  stats: {
-    // Passing
-    pass_att?: number;
-    pass_cmp?: number;
-    pass_yd?: number;
-    pass_td?: number;
-    pass_int?: number;
-    pass_sack?: number;
-    
-    // Rushing
-    rush_att?: number;
-    rush_yd?: number;
-    rush_td?: number;
-    rush_fd?: number;
-    
-    // Receiving
-    rec?: number;
-    rec_tgt?: number;
-    rec_yd?: number;
-    rec_td?: number;
-    rec_fd?: number;
-    
-    // Kicking
-    fgm?: number;
-    fga?: number;
-    xpm?: number;
-    xpa?: number;
-    
-    // Defense
-    def_td?: number;
-    sack?: number;
-    int?: number;
-    fum_rec?: number;
-    pts_allow?: number;
-    safe?: number;
-    blk_kick?: number;
-    ff?: number;
-    
-    // Fantasy points (calculated)
-    pts_ppr?: number;
-    pts_half_ppr?: number;
-    pts_std?: number;
-  };
+  first_name: string;
+  last_name: string;
+  full_name?: string | null;
+  position: Position;
+  team: string | null;
+  age?: number;
+  years_exp?: number;
+  college?: string;
+  number?: number;
+  status?: string | null;
+  active?: boolean;
+  injury_status?: string | null;
+  injury_body_part?: string | null;
+  injury_notes?: string | null;
+  search_rank?: number | null;
 }
 
-// Player projections
-export interface PlayerProjection {
-  player_id: string;
-  week: number;
-  season: string;
-  stats: PlayerStats['stats'];
-}
-
-// Simplified player for UI
+// Simplified player for UI (served by /api/nfl/players)
 export interface Player {
   id: string;
   name: string;
   firstName: string;
   lastName: string;
   position: Position;
-  team: string;
+  team: string; // 'FA' when unsigned
   age?: number;
   experience?: number;
   college?: string;
   number?: number;
+  status?: string;
   injuryStatus?: string | null;
   searchRank?: number;
-  headshot?: string;
 }
 
 // Weekly game log entry
 export interface GameLogEntry {
   week: number;
   opponent?: string;
-  stats: PlayerStats['stats'];
+  home?: boolean;
+  stats: StatLine;
   fantasyPoints: number;
   projectedPoints?: number;
 }
 
+// Season summary computed from weekly stats
+export interface PlayerSeason {
+  gameLog: GameLogEntry[];
+  gamesPlayed: number;
+  totalPoints: number;
+  avgPoints: number;
+  recentAvgPoints: number; // Last 3 games played
+  stdDev: number | null; // null when fewer than 2 games
+}
+
 // Player with full data
 export interface PlayerWithStats extends Player {
-  seasonStats?: PlayerStats['stats'];
   projectedPoints?: number;
   avgPoints?: number;
-  recentAvgPoints?: number; // Last 3 weeks
+  recentAvgPoints?: number;
+  totalPoints?: number;
+  gamesPlayed?: number;
+  stdDev?: number | null;
   gameLog?: GameLogEntry[];
+}
+
+// ==========================================
+// NFL STATE & SCHEDULE
+// ==========================================
+
+// Response from Sleeper /v1/state/nfl
+export interface NflState {
+  week: number;
+  season: string;
+  season_type: 'pre' | 'regular' | 'post' | 'off' | string;
+  display_week: number;
+  league_season: string;
+  previous_season: string;
+  season_start_date?: string;
+  season_has_scores?: boolean;
+  leg?: number;
+}
+
+export type GameStatus = 'pre_game' | 'in_game' | 'complete' | string;
+
+// Raw game from Sleeper's schedule endpoint
+export interface SleeperGame {
+  week: number;
+  home: string;
+  away: string;
+  date: string;
+  status: GameStatus;
+  game_id: string;
+}
+
+export interface TeamGame {
+  opponent: string;
+  home: boolean;
+  date: string;
+  status: GameStatus;
+}
+
+/** team -> week -> game (weeks without an entry are byes) */
+export type TeamSchedule = Record<string, Record<number, TeamGame>>;
+
+// ==========================================
+// ANALYSIS RESULTS
+// ==========================================
+
+export type Winner = 'player1' | 'player2' | 'tie';
+
+export interface ComparisonCategory {
+  category: string;
+  player1Value: number;
+  player2Value: number;
+  winner: Winner;
+  higherIsBetter: boolean;
+  weight: number;
+  format: 'points' | 'percent' | 'multiplier';
 }
 
 // Comparison result
 export interface ComparisonResult {
   player1: PlayerWithStats;
   player2: PlayerWithStats;
-  winner: 'player1' | 'player2' | 'tie';
-  confidence: number; // 0-100
-  breakdown: {
-    category: string;
-    player1Value: number;
-    player2Value: number;
-    winner: 'player1' | 'player2' | 'tie';
-  }[];
+  winner: Winner;
+  confidence: number; // 50-100
+  breakdown: ComparisonCategory[];
 }
 
 // Start/Sit recommendation
 export interface StartSitRecommendation {
   start: PlayerWithStats;
   sit: PlayerWithStats;
-  confidence: number; // 0-100
+  confidence: number; // 50-100
   reasons: string[];
+  tossUp: boolean;
+}
+
+export interface TradePlayerValue {
+  player: PlayerWithStats;
+  rawValue: number;
+  replacementValue: number;
+  valueOverReplacement: number;
 }
 
 // Trade analysis
 export interface TradeAnalysis {
-  team1Players: PlayerWithStats[];
-  team2Players: PlayerWithStats[];
-  team1Value: number;
-  team2Value: number;
-  winner: 'team1' | 'team2' | 'fair';
+  givePlayers: TradePlayerValue[];
+  receivePlayers: TradePlayerValue[];
+  giveValue: number;
+  receiveValue: number;
+  winner: 'give' | 'receive' | 'fair';
   valueDifference: number;
   recommendation: string;
-}
-
-// Search/filter options
-export interface PlayerFilters {
-  position?: Position | 'ALL';
-  team?: string;
-  searchQuery?: string;
-  sortBy?: 'name' | 'projected' | 'avgPoints' | 'searchRank';
-  sortOrder?: 'asc' | 'desc';
+  rosterSpotNote?: string;
 }
 
 // NFL Teams
@@ -202,33 +212,17 @@ export interface SleeperLeague {
   settings: {
     wins_bracket?: number;
     waiver_type?: number;
-    waiver_day_of_week?: number;
-    waiver_clear_days?: number;
     waiver_budget?: number;
     type?: number;
-    trade_review_days?: number;
     trade_deadline?: number;
-    taxi_slots?: number;
-    taxi_deadline?: number;
-    taxi_allow_vets?: number;
     start_week?: number;
-    reserve_slots?: number;
-    reserve_allow_out?: number;
     reg_season_weeks?: number;
-    pts_in_decimal?: number;
     playoff_week_start?: number;
     playoff_teams?: number;
-    pick_trading?: number;
-    offseason_adds?: number;
     num_teams?: number;
-    max_keepers?: number;
     leg?: number;
     last_scored_leg?: number;
-    last_report?: number;
-    draft_rounds?: number;
-    daily_waivers_hour?: number;
-    capacity_override?: number;
-    bench_lock?: number;
+    [setting: string]: number | undefined;
   };
   scoring_settings: Record<string, number>;
   avatar: string | null;
@@ -239,7 +233,8 @@ export interface SleeperLeague {
 // Sleeper Roster
 export interface SleeperRoster {
   roster_id: number;
-  owner_id: string;
+  owner_id: string | null;
+  co_owners?: string[] | null;
   league_id: string;
   players: string[] | null;
   starters: string[] | null;
@@ -259,13 +254,13 @@ export interface SleeperRoster {
   metadata?: {
     streak?: string;
     record?: string;
-  };
+  } | null;
 }
 
 // Sleeper League User (member of a league)
 export interface SleeperLeagueUser {
   user_id: string;
-  username: string;
+  username?: string;
   display_name: string;
   avatar: string | null;
   metadata?: {
@@ -278,16 +273,20 @@ export interface SleeperLeagueUser {
 // Sleeper Matchup
 export interface SleeperMatchup {
   roster_id: number;
-  matchup_id: number;
-  players: string[];
-  starters: string[];
+  matchup_id: number | null;
+  players: string[] | null;
+  starters: string[] | null;
   points: number;
-  starters_points: number[];
-  players_points: Record<string, number>;
-  custom_points?: number;
+  starters_points?: number[];
+  players_points?: Record<string, number>;
+  custom_points?: number | null;
 }
 
-// Processed types for our app
+// Trending players from Sleeper
+export interface TrendingPlayer {
+  player_id: string;
+  count: number;
+}
 
 // User's league with additional context
 export interface UserLeague extends SleeperLeague {
@@ -298,43 +297,3 @@ export interface UserLeague extends SleeperLeague {
     ties: number;
   };
 }
-
-// Roster with player details
-export interface RosterWithPlayers {
-  roster: SleeperRoster;
-  owner: SleeperLeagueUser | null;
-  players: Player[];
-  starters: Player[];
-  bench: Player[];
-  projectedPoints: number;
-}
-
-// Matchup with full details
-export interface MatchupDetails {
-  matchupId: number;
-  week: number;
-  userTeam: RosterWithPlayers;
-  opponentTeam: RosterWithPlayers;
-  userProjected: number;
-  opponentProjected: number;
-  userActual: number;
-  opponentActual: number;
-  userPlayerPoints: Record<string, number>;
-  opponentPlayerPoints: Record<string, number>;
-  playerProjections: Record<string, number>;
-}
-
-// Roster slot types
-export const ROSTER_SLOTS = {
-  QB: 'QB',
-  RB: 'RB', 
-  WR: 'WR',
-  TE: 'TE',
-  FLEX: 'FLEX',
-  SUPER_FLEX: 'SUPER_FLEX',
-  K: 'K',
-  DEF: 'DEF',
-  BN: 'BN',
-  IR: 'IR',
-} as const;
-

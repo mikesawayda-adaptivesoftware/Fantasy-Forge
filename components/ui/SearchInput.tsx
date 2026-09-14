@@ -1,66 +1,58 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 interface SearchInputProps {
   placeholder?: string;
   onSearch: (query: string) => void;
   debounceMs?: number;
+  autoFocus?: boolean;
 }
 
-export default function SearchInput({ 
-  placeholder = "Search players...", 
-  onSearch,
-  debounceMs = 300 
-}: SearchInputProps) {
+export default function SearchInput({ placeholder = 'Search players...', onSearch, debounceMs = 250, autoFocus }: SearchInputProps) {
   const [value, setValue] = useState('');
-  const [timeoutId, setTimeoutId] = useState<NodeJS.Timeout | null>(null);
+  const timeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const newValue = e.target.value;
+  useEffect(() => () => {
+    if (timeout.current) clearTimeout(timeout.current);
+  }, []);
+
+  const handleChange = (newValue: string) => {
     setValue(newValue);
-
-    // Clear existing timeout
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-    }
-
-    // Set new timeout for debounced search
-    const newTimeoutId = setTimeout(() => {
-      onSearch(newValue);
-    }, debounceMs);
-
-    setTimeoutId(newTimeoutId);
-  }, [onSearch, debounceMs, timeoutId]);
+    if (timeout.current) clearTimeout(timeout.current);
+    timeout.current = setTimeout(() => onSearch(newValue), debounceMs);
+  };
 
   const handleClear = () => {
+    if (timeout.current) clearTimeout(timeout.current);
     setValue('');
     onSearch('');
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-    }
   };
 
   return (
     <div className="relative">
       <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-        <svg className="w-5 h-5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="w-5 h-5 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
         </svg>
       </div>
       <input
-        type="text"
+        type="search"
         value={value}
-        onChange={handleChange}
+        onChange={e => handleChange(e.target.value)}
         placeholder={placeholder}
+        aria-label={placeholder}
+        autoFocus={autoFocus}
         className="input-field pl-10 pr-10"
       />
       {value && (
         <button
+          type="button"
           onClick={handleClear}
+          aria-label="Clear search"
           className="absolute inset-y-0 right-0 pr-3 flex items-center text-text-muted hover:text-white transition-colors"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
         </button>
@@ -68,4 +60,3 @@ export default function SearchInput({
     </div>
   );
 }
-

@@ -1,0 +1,86 @@
+name: Release image
+
+# Every merge to main publishes ghcr.io/<owner>/fantasy-forge:latest (plus an
+# immutable sha-<commit> tag for rollbacks). Watchtower on the Unraid box polls
+# GHCR and restarts the container when :latest changes, so merging is deploying.
+#
+# The package is private. Pushes don't change a package's visibility, and the
+# Unraid host pulls with its own GHCR credentials.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - '.github/workflows/ci.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: release-image
+  # Let an in-flight publish finish; a newer merge queues behind it.
+  cancel-in-progress: false
+
+jobs:
+  # The image Watchtower deploys must come from a commit that passed the same
+  # checks as a pull request, not merely one that compiled.
+  verify:
+    name: Lint, types, tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+
+  publish:
+    name: Build and push to GHCR
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Credentials come from the Actions token, never a PAT in a script.
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Adds org.opencontainers.image.source, which links the package to this
+      # repository so the Actions token is allowed to publish to it.
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/fantasy-forge
+          tags: |
+            type=raw,value=latest
+            type=sha,format=long
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # The Unraid box only needs the image; skip provenance/SBOM manifests
+          # that show up as "unknown/unknown" platforms in the registry.
+          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

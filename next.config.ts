@@ -1,27 +1,14 @@
-import type { NextConfig } from "next";
+import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
   // Enable standalone output for Docker deployments
   output: 'standalone',
-  
+  poweredByHeader: false,
+
   images: {
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: 'sleepercdn.com',
-        pathname: '/content/nfl/players/**',
-      },
-      {
-        protocol: 'https',
-        hostname: 'sleepercdn.com',
-        pathname: '/avatars/**',
-      },
-      {
-        protocol: 'https',
-        hostname: 'sleepercdn.com',
-        pathname: '/images/team_logos/**',
-      },
-    ],
+    // Sleeper's CDN already serves small thumbnails; skipping the optimizer
+    // avoids running image processing (and its cache) on the server.
+    unoptimized: true,
   },
 };
 

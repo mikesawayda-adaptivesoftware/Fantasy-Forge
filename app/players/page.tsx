@@ -1,252 +1,99 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Player, Position, PlayerWithStats } from '@/types';
-import { 
-  getFantasyPlayers, 
-  getCurrentSeason, 
-  getCurrentWeek,
-  fetchWeeklyProjections,
-  fetchWeeklyStats,
-  calculateFantasyPoints 
-} from '@/lib/sleeper';
+import { useMemo, useState } from 'react';
+import { Position } from '@/types';
+import { useFantasyData } from '@/lib/hooks/useFantasyData';
 import PlayerCard from '@/components/ui/PlayerCard';
 import SearchInput from '@/components/ui/SearchInput';
 import PositionFilter from '@/components/ui/PositionFilter';
-import LoadingSpinner from '@/components/ui/LoadingSpinner';
+import LoadingState from '@/components/ui/LoadingState';
+import ErrorState from '@/components/ui/ErrorState';
+import SectionHeader from '@/components/ui/SectionHeader';
+import MatchupBadge from '@/components/ui/MatchupBadge';
+import { formatPoints } from '@/lib/utils';
 
 type SortOption = 'rank' | 'name' | 'projected' | 'total' | 'average';
 
-interface PlayerWithSeasonStats extends Player {
-  projectedPoints?: number;
-  totalPoints?: number;
-  gamesPlayed?: number;
-  avgPoints?: number;
-}
+const PAGE_SIZE = 50;
 
 export default function PlayersPage() {
-  const [players, setPlayers] = useState<PlayerWithSeasonStats[]>([]);
-  const [filteredPlayers, setFilteredPlayers] = useState<PlayerWithSeasonStats[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadingStats, setLoadingStats] = useState(false);
-  const [statsLoaded, setStatsLoaded] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const data = useFantasyData();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPosition, setSelectedPosition] = useState<Position | 'ALL'>('ALL');
   const [sortBy, setSortBy] = useState<SortOption>('rank');
-  const [displayCount, setDisplayCount] = useState(50);
+  const [displayCount, setDisplayCount] = useState(PAGE_SIZE);
 
-  // Load players on mount
-  useEffect(() => {
-    async function loadPlayers() {
-      try {
-        setLoading(true);
-        const data = await getFantasyPlayers();
-        setPlayers(data);
-        setFilteredPlayers(data.slice(0, 50));
-      } catch (err) {
-        setError('Failed to load players. Please try again.');
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
-    }
+  const { listedPlayers, seasons, projected } = data;
 
-    loadPlayers();
-  }, []);
+  const filteredPlayers = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    const result = listedPlayers.filter(
+      p =>
+        (selectedPosition === 'ALL' || p.position === selectedPosition) &&
+        (!query || p.name.toLowerCase().includes(query) || p.team.toLowerCase() === query)
+    );
 
-  // Load stats when sorting by stats-based option
-  useEffect(() => {
-    if ((sortBy === 'projected' || sortBy === 'total' || sortBy === 'average') && !statsLoaded && !loadingStats) {
-      loadPlayerStats();
-    }
-  }, [sortBy, statsLoaded, loadingStats]);
+    const total = (id: string) => seasons.get(id)?.totalPoints ?? 0;
+    const avg = (id: string) => seasons.get(id)?.avgPoints ?? 0;
+    const proj = (id: string) => projected.get(id) ?? 0;
 
-  const loadPlayerStats = async () => {
-    setLoadingStats(true);
-    try {
-      const season = getCurrentSeason();
-      const currentWeek = getCurrentWeek();
-      
-      // Fetch projections and all weekly stats in parallel
-      const weekPromises = [];
-      for (let week = 1; week <= currentWeek; week++) {
-        weekPromises.push(fetchWeeklyStats(season, week));
-      }
-      
-      const [projections, ...weeklyStats] = await Promise.all([
-        fetchWeeklyProjections(season, currentWeek),
-        ...weekPromises,
-      ]);
-
-      // Calculate stats for each player
-      const playersWithStats = players.map(player => {
-        // Get projected points
-        const proj = projections[player.id];
-        const projectedPoints = proj ? calculateFantasyPoints(proj) : 0;
-        
-        // Calculate season totals
-        let totalPoints = 0;
-        let gamesPlayed = 0;
-        
-        for (const weekStats of weeklyStats) {
-          const stats = weekStats[player.id];
-          if (stats) {
-            const points = calculateFantasyPoints(stats);
-            if (points > 0) {
-              totalPoints += points;
-              gamesPlayed++;
-            }
-          }
-        }
-        
-        const avgPoints = gamesPlayed > 0 ? totalPoints / gamesPlayed : 0;
-        
-        return {
-          ...player,
-          projectedPoints: Math.round(projectedPoints * 10) / 10,
-          totalPoints: Math.round(totalPoints * 10) / 10,
-          gamesPlayed,
-          avgPoints: Math.round(avgPoints * 10) / 10,
-        };
-      });
-
-      setPlayers(playersWithStats);
-      setStatsLoaded(true);
-    } catch (err) {
-      console.error('Failed to load player stats:', err);
-    } finally {
-      setLoadingStats(false);
-    }
-  };
-
-  // Filter and sort players
-  useEffect(() => {
-    let result = [...players];
-
-    // Filter by position
-    if (selectedPosition !== 'ALL') {
-      result = result.filter(p => p.position === selectedPosition);
-    }
-
-    // Filter by search query
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      result = result.filter(p => 
-        p.name.toLowerCase().includes(query) ||
-        p.team.toLowerCase().includes(query)
-      );
-    }
-
-    // Sort
     switch (sortBy) {
       case 'name':
-        result.sort((a, b) => a.name.localeCompare(b.name));
-        break;
+        return result.sort((a, b) => a.name.localeCompare(b.name));
       case 'projected':
-        result.sort((a, b) => (b.projectedPoints || 0) - (a.projectedPoints || 0));
-        break;
+        return result.sort((a, b) => proj(b.id) - proj(a.id));
       case 'total':
-        result.sort((a, b) => (b.totalPoints || 0) - (a.totalPoints || 0));
-        break;
+        return result.sort((a, b) => total(b.id) - total(a.id));
       case 'average':
-        result.sort((a, b) => (b.avgPoints || 0) - (a.avgPoints || 0));
-        break;
-      case 'rank':
+        return result.sort((a, b) => avg(b.id) - avg(a.id));
       default:
-        result.sort((a, b) => (a.searchRank || 9999) - (b.searchRank || 9999));
-        break;
+        return result.sort((a, b) => (a.searchRank ?? 9999) - (b.searchRank ?? 9999));
     }
+  }, [listedPlayers, seasons, projected, searchQuery, selectedPosition, sortBy]);
 
-    setFilteredPlayers(result);
-    setDisplayCount(50); // Reset display count on filter change
-  }, [players, searchQuery, selectedPosition, sortBy]);
-
-  const handleSearch = (query: string) => {
-    setSearchQuery(query);
+  // Reset paging whenever the filters change
+  const updateFilters = (fn: () => void) => {
+    fn();
+    setDisplayCount(PAGE_SIZE);
   };
 
-  const handlePositionChange = (position: Position | 'ALL') => {
-    setSelectedPosition(position);
-  };
+  if (data.loading) return <LoadingState message="Loading NFL players..." />;
+  if (data.error) return <ErrorState message={data.error.message} onRetry={data.retry} />;
 
-  const handleLoadMore = () => {
-    setDisplayCount(prev => prev + 50);
-  };
-
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center py-12">
-        <LoadingSpinner size="lg" />
-        <p className="mt-4 text-text-secondary">Loading NFL players...</p>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="text-center py-12">
-        <span className="text-4xl mb-4 block">⚠️</span>
-        <p className="text-red">{error}</p>
-        <button 
-          onClick={() => window.location.reload()}
-          className="btn-primary mt-4"
-        >
-          Retry
-        </button>
-      </div>
-    );
-  }
+  const statsSeasonNote =
+    data.ctx && data.ctx.statsSeason !== data.ctx.season ? ` · stats from ${data.ctx.statsSeason}` : '';
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center gap-3">
-        <span className="text-2xl">🏈</span>
-        <h2 className="text-xl font-semibold text-white">Player Database</h2>
-        <div className="flex-1 h-px bg-field-border"></div>
-        <span className="text-text-muted text-sm">
-          {filteredPlayers.length.toLocaleString()} players
-        </span>
-      </div>
+      <SectionHeader icon="🏈" title="Player Database">
+        <span className="text-text-muted text-sm">{filteredPlayers.length.toLocaleString()} players</span>
+      </SectionHeader>
 
-      {/* Filters */}
+      <p className="text-text-muted text-sm">
+        Week {data.ctx?.week} · {data.scoringLabel} scoring{statsSeasonNote}
+      </p>
+
       <div className="space-y-4">
-        <SearchInput 
-          placeholder="Search by name or team..." 
-          onSearch={handleSearch}
-        />
+        <SearchInput placeholder="Search by name or team (e.g. KC)..." onSearch={q => updateFilters(() => setSearchQuery(q))} />
         <div className="flex flex-wrap gap-4 items-center">
-          <PositionFilter 
-            selectedPosition={selectedPosition}
-            onPositionChange={handlePositionChange}
-          />
-          
-          {/* Sort Dropdown */}
-          <div className="flex items-center gap-2">
+          <PositionFilter selectedPosition={selectedPosition} onPositionChange={pos => updateFilters(() => setSelectedPosition(pos))} />
+          <label className="flex items-center gap-2">
             <span className="text-text-muted text-sm">Sort by:</span>
             <select
               value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as SortOption)}
-              className="input-field py-2 px-3 text-sm"
+              onChange={e => updateFilters(() => setSortBy(e.target.value as SortOption))}
+              className="input-field py-2 px-3 text-sm w-auto"
             >
               <option value="rank">Fantasy Rank</option>
               <option value="name">Name (A-Z)</option>
-              <option value="projected">Projected Points</option>
+              <option value="projected">Projected (Week {data.ctx?.week})</option>
               <option value="total">Total Points (Season)</option>
               <option value="average">Avg Points/Game</option>
             </select>
-            {loadingStats && (
-              <span className="text-text-muted text-sm flex items-center gap-2">
-                <LoadingSpinner size="sm" />
-                Loading stats...
-              </span>
-            )}
-          </div>
+          </label>
         </div>
       </div>
 
-      {/* Player Grid */}
       {filteredPlayers.length === 0 ? (
         <div className="text-center py-12">
           <span className="text-4xl mb-4 block">🔍</span>
@@ -255,20 +102,33 @@ export default function PlayersPage() {
       ) : (
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {filteredPlayers.slice(0, displayCount).map((player) => (
-              <PlayerCardWithStats 
-                key={player.id} 
-                player={player} 
-                sortBy={sortBy}
-                statsLoaded={statsLoaded}
-              />
-            ))}
+            {filteredPlayers.slice(0, displayCount).map(player => {
+              const season = seasons.get(player.id);
+              const stat =
+                sortBy === 'total'
+                  ? { value: formatPoints(season?.totalPoints), label: `Total (${season?.gamesPlayed ?? 0} G)`, color: 'text-turf' }
+                  : sortBy === 'average'
+                    ? { value: formatPoints(season?.avgPoints), label: 'Avg/Game', color: 'text-cyan' }
+                    : { value: formatPoints(projected.get(player.id)), label: 'Projected', color: 'text-gold' };
+              return (
+                <PlayerCard
+                  key={player.id}
+                  player={player}
+                  meta={<MatchupBadge matchup={data.getMatchup(player)} position={player.position} compact />}
+                  aside={
+                    <div className="text-right flex-shrink-0">
+                      <div className={`stat-number text-lg ${stat.color}`}>{stat.value}</div>
+                      <div className="text-xs text-text-muted">{stat.label}</div>
+                    </div>
+                  }
+                />
+              );
+            })}
           </div>
 
-          {/* Load More */}
           {displayCount < filteredPlayers.length && (
             <div className="text-center pt-4">
-              <button onClick={handleLoadMore} className="btn-secondary">
+              <button onClick={() => setDisplayCount(c => c + PAGE_SIZE)} className="btn-secondary">
                 Load More ({filteredPlayers.length - displayCount} remaining)
               </button>
             </div>
@@ -278,61 +138,3 @@ export default function PlayersPage() {
     </div>
   );
 }
-
-// Enhanced player card that shows stats based on sort selection
-function PlayerCardWithStats({ 
-  player, 
-  sortBy, 
-  statsLoaded 
-}: { 
-  player: PlayerWithSeasonStats; 
-  sortBy: SortOption;
-  statsLoaded: boolean;
-}) {
-  // Determine what stat to show based on sort
-  const getStatDisplay = () => {
-    if (!statsLoaded && (sortBy === 'projected' || sortBy === 'total' || sortBy === 'average')) {
-      return null;
-    }
-    
-    switch (sortBy) {
-      case 'projected':
-        return player.projectedPoints !== undefined ? (
-          <div className="text-right">
-            <div className="stat-number text-lg text-gold">{player.projectedPoints}</div>
-            <div className="text-xs text-text-muted">Projected</div>
-          </div>
-        ) : null;
-      case 'total':
-        return player.totalPoints !== undefined ? (
-          <div className="text-right">
-            <div className="stat-number text-lg text-turf">{player.totalPoints}</div>
-            <div className="text-xs text-text-muted">Total ({player.gamesPlayed} games)</div>
-          </div>
-        ) : null;
-      case 'average':
-        return player.avgPoints !== undefined ? (
-          <div className="text-right">
-            <div className="stat-number text-lg text-cyan">{player.avgPoints}</div>
-            <div className="text-xs text-text-muted">Avg/Game</div>
-          </div>
-        ) : null;
-      default:
-        return null;
-    }
-  };
-
-  const statDisplay = getStatDisplay();
-
-  return (
-    <div className="relative">
-      <PlayerCard player={player} />
-      {statDisplay && (
-        <div className="absolute top-4 right-4 bg-field-dark/90 rounded-lg px-3 py-2 border border-field-border">
-          {statDisplay}
-        </div>
-      )}
-    </div>
-  );
-}
-

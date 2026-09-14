@@ -1,151 +1,64 @@
 import { Position } from '@/types';
+import { MatchupGrade } from './matchups';
 
-/**
- * Get the CSS class for a position badge
- */
-export function getPositionBadgeClass(position: Position): string {
-  const classes: Record<Position, string> = {
+/** CSS class for a solid position badge (defined in globals.css) */
+export function getPositionBadgeClass(position: Position | string): string {
+  const classes: Record<string, string> = {
     QB: 'badge-qb',
     RB: 'badge-rb',
     WR: 'badge-wr',
     TE: 'badge-te',
     K: 'badge-k',
     DEF: 'badge-def',
-    DL: 'badge-def',
-    LB: 'badge-def',
-    DB: 'badge-def',
   };
   return classes[position] || 'badge-def';
 }
 
-/**
- * Get position color for charts
- */
-export function getPositionColor(position: Position): string {
-  const colors: Record<Position, string> = {
-    QB: '#ef4444',
-    RB: '#10b981',
-    WR: '#3b82f6',
-    TE: '#f59e0b',
-    K: '#a855f7',
-    DEF: '#6b7280',
-    DL: '#6b7280',
-    LB: '#6b7280',
-    DB: '#6b7280',
+/** Subtle tinted badge classes for tables and lists */
+export function getPositionTintClass(position: Position | string): string {
+  const classes: Record<string, string> = {
+    QB: 'bg-red/20 text-red',
+    RB: 'bg-turf/20 text-turf',
+    WR: 'bg-cyan/20 text-cyan',
+    TE: 'bg-gold/20 text-gold',
+    K: 'bg-purple/20 text-purple',
   };
-  return colors[position] || '#6b7280';
+  return classes[position] || 'bg-text-muted/20 text-text-muted';
 }
 
-/**
- * Format a number with commas
- */
-export function formatNumber(num: number): string {
-  return num.toLocaleString();
+export function formatPoints(points: number | null | undefined): string {
+  return (points ?? 0).toFixed(1);
 }
 
-/**
- * Format fantasy points display
- */
-export function formatPoints(points: number): string {
-  return points.toFixed(1);
+export function formatSigned(value: number, digits = 1): string {
+  return `${value >= 0 ? '+' : ''}${value.toFixed(digits)}`;
 }
 
-/**
- * Get team display name
- */
-export function getTeamDisplayName(abbrev: string): string {
-  const teams: Record<string, string> = {
-    ARI: 'Arizona Cardinals',
-    ATL: 'Atlanta Falcons',
-    BAL: 'Baltimore Ravens',
-    BUF: 'Buffalo Bills',
-    CAR: 'Carolina Panthers',
-    CHI: 'Chicago Bears',
-    CIN: 'Cincinnati Bengals',
-    CLE: 'Cleveland Browns',
-    DAL: 'Dallas Cowboys',
-    DEN: 'Denver Broncos',
-    DET: 'Detroit Lions',
-    GB: 'Green Bay Packers',
-    HOU: 'Houston Texans',
-    IND: 'Indianapolis Colts',
-    JAX: 'Jacksonville Jaguars',
-    KC: 'Kansas City Chiefs',
-    LV: 'Las Vegas Raiders',
-    LAC: 'Los Angeles Chargers',
-    LAR: 'Los Angeles Rams',
-    MIA: 'Miami Dolphins',
-    MIN: 'Minnesota Vikings',
-    NE: 'New England Patriots',
-    NO: 'New Orleans Saints',
-    NYG: 'New York Giants',
-    NYJ: 'New York Jets',
-    PHI: 'Philadelphia Eagles',
-    PIT: 'Pittsburgh Steelers',
-    SF: 'San Francisco 49ers',
-    SEA: 'Seattle Seahawks',
-    TB: 'Tampa Bay Buccaneers',
-    TEN: 'Tennessee Titans',
-    WAS: 'Washington Commanders',
-    FA: 'Free Agent',
-  };
-  return teams[abbrev] || abbrev;
-}
-
-/**
- * Get injury status badge color
- */
+/** Background class for an injury designation badge */
 export function getInjuryStatusColor(status: string | null | undefined): string {
   if (!status) return '';
-  
   const colors: Record<string, string> = {
-    Out: 'bg-red-500',
-    Doubtful: 'bg-red-400',
-    Questionable: 'bg-yellow-500',
-    Probable: 'bg-green-400',
-    IR: 'bg-red-600',
-    PUP: 'bg-orange-500',
-    Sus: 'bg-purple-500',
+    Out: 'bg-red-500 text-white',
+    Doubtful: 'bg-red-400 text-white',
+    Questionable: 'bg-yellow-500 text-black',
+    Probable: 'bg-green-400 text-black',
+    IR: 'bg-red-600 text-white',
+    PUP: 'bg-orange-500 text-white',
+    Sus: 'bg-purple-500 text-white',
   };
-  return colors[status] || 'bg-gray-500';
+  return colors[status] || 'bg-gray-500 text-white';
 }
 
-/**
- * Debounce function for search
- */
-export function debounce<T extends (...args: unknown[]) => unknown>(
-  func: T,
-  wait: number
-): (...args: Parameters<T>) => void {
-  let timeout: NodeJS.Timeout;
-  return (...args: Parameters<T>) => {
-    clearTimeout(timeout);
-    timeout = setTimeout(() => func(...args), wait);
-  };
-}
+export const MATCHUP_GRADE_CLASSES: Record<MatchupGrade, string> = {
+  great: 'bg-turf/20 text-turf border-turf/40',
+  good: 'bg-turf/10 text-turf-glow border-turf/20',
+  neutral: 'bg-field-elevated text-text-secondary border-field-border',
+  tough: 'bg-gold/10 text-gold border-gold/30',
+  brutal: 'bg-red/15 text-red border-red/40',
+};
 
-/**
- * Calculate percentage for comparison bars
- */
-export function calculateBarPercentage(value: number, maxValue: number): number {
-  if (maxValue === 0) return 0;
-  return Math.min(100, (value / maxValue) * 100);
+/** Percent label for a multiplier, e.g. 1.12 -> "+12%" */
+export function formatMultiplier(multiplier: number): string {
+  const pct = Math.round((multiplier - 1) * 100);
+  return `${pct >= 0 ? '+' : ''}${pct}%`;
 }
-
-/**
- * Get ordinal suffix for a number
- */
-export function getOrdinalSuffix(n: number): string {
-  const s = ['th', 'st', 'nd', 'rd'];
-  const v = n % 100;
-  return n + (s[(v - 20) % 10] || s[v] || s[0]);
-}
-
-/**
- * Truncate text with ellipsis
- */
-export function truncate(text: string, maxLength: number): string {
-  if (text.length <= maxLength) return text;
-  return text.slice(0, maxLength - 3) + '...';
-}
-
