@@ -1,143 +1,79 @@
 #!/bin/bash
 
-# Fantasy Forge - Deploy Script
-# This script commits changes to GitHub and pushes a new Docker image to ghcr.io
+# Fantasy Forge - Ship Script
+#
+# Runs the same checks as CI, commits your changes and pushes the current
+# branch. Deployment itself happens in GitHub Actions: every merge to main
+# builds ghcr.io/mikesawayda-adaptivesoftware/fantasy-forge (private) and
+# Watchtower on Unraid picks up the new :latest image.
+#
+# Usage: ./deploy.sh ["commit message"]
+# Env:   SKIP_CHECKS=1   skip lint/typecheck/tests
 
-set -e  # Exit on error
+set -euo pipefail
 
-GITHUB_USERNAME="mikesawayda-adaptivesoftware"
-REPO_URL="https://github.com/mikesawayda-adaptivesoftware/Fantasy-Forge.git"
+REPO="mikesawayda-adaptivesoftware/Fantasy-Forge"
+REPO_URL="https://github.com/${REPO}.git"
 
-# Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}   🏈 Fantasy Forge - Deploy Script${NC}"
+echo -e "${BLUE}   🏈 Fantasy Forge - Ship Script${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
 
-# Get the directory where this script is located
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-APP_DIR="$SCRIPT_DIR"
+cd "$(cd "$(dirname "$0")" && pwd)"
 
-echo -e "${YELLOW}📁 App directory: $APP_DIR${NC}"
-echo ""
+if [ "${SKIP_CHECKS:-0}" != "1" ]; then
+    echo -e "${BLUE}🧪 Running lint, type-check and tests...${NC}"
+    npm run lint
+    npm run typecheck
+    npm test
+    echo -e "${GREEN}✅ Checks passed${NC}"
+    echo ""
+fi
 
-# Check for uncommitted changes
-cd "$APP_DIR"
-if [[ -z $(git status -s) ]]; then
+BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+
+if [[ -z $(git status --porcelain) ]]; then
     echo -e "${YELLOW}⚠️  No changes to commit${NC}"
 else
-    # Get commit message from user or use default
-    if [ -z "$1" ]; then
-        COMMIT_MSG="Update Fantasy-Forge - $(date '+%Y-%m-%d %H:%M')"
-        echo -e "${YELLOW}💬 Using default commit message: ${COMMIT_MSG}${NC}"
-    else
-        COMMIT_MSG="$1"
-        echo -e "${YELLOW}💬 Commit message: ${COMMIT_MSG}${NC}"
+    # Refuse to commit anything that looks like a secret
+    SENSITIVE=$(git status --porcelain --untracked-files=all | awk '{print $NF}' | grep -Ei '(^|/)(\.env(\..*)?|.*\.pem|.*\.key|.*\.p12|id_rsa.*|credentials.*)$' | grep -v '\.env\.example$' || true)
+    if [ -n "$SENSITIVE" ]; then
+        echo -e "${RED}❌ Refusing to commit files that look like secrets:${NC}"
+        echo "$SENSITIVE"
+        echo -e "${YELLOW}Add them to .gitignore or remove them, then re-run.${NC}"
+        exit 1
     fi
+
+    COMMIT_MSG="${1:-Update Fantasy-Forge - $(date '+%Y-%m-%d %H:%M')}"
+    echo -e "${YELLOW}💬 Commit message: ${COMMIT_MSG}${NC}"
+    git status --short
     echo ""
-
-    # Stage all changes
-    echo -e "${BLUE}📦 Staging changes...${NC}"
     git add -A
-
-    # Commit
-    echo -e "${BLUE}✍️  Committing...${NC}"
     git commit -m "$COMMIT_MSG"
-
-    # Push to GitHub
-    echo -e "${BLUE}🚀 Pushing to GitHub...${NC}"
-    git remote set-url origin ${REPO_URL} 2>/dev/null || git remote add origin ${REPO_URL}
-    git push origin main
-    echo -e "${GREEN}✅ GitHub updated successfully!${NC}"
-fi
-echo ""
-
-# Login to GitHub Container Registry
-echo -e "${BLUE}🔑 Logging into ghcr.io...${NC}"
-if [ -z "$GITHUB_CR_PAT" ]; then
-    echo -e "${RED}❌ Error: GITHUB_CR_PAT environment variable is not set!${NC}"
-    echo -e "${YELLOW}Please set it with: export GITHUB_CR_PAT='your_token_here'${NC}"
-    echo -e "${YELLOW}Get a token from: https://github.com/settings/tokens${NC}"
-    echo -e "${YELLOW}Required scopes: write:packages, read:packages${NC}"
-    exit 1
-fi
-echo "$GITHUB_CR_PAT" | docker login ghcr.io -u "$GITHUB_USERNAME" --password-stdin
-echo -e "${GREEN}✅ Logged into ghcr.io${NC}"
-echo ""
-
-# Build and push Docker image to ghcr.io
-echo -e "${BLUE}🐳 Building Docker image for linux/amd64 and pushing to ghcr.io...${NC}"
-cd "$APP_DIR"
-
-# Check if buildx is available
-if ! docker buildx version > /dev/null 2>&1; then
-    echo -e "${RED}❌ Docker buildx is not available. Please install it first.${NC}"
-    exit 1
 fi
 
-# Create/use buildx builder
-docker buildx create --name mybuilder --use 2>/dev/null || docker buildx use mybuilder 2>/dev/null || true
+if ! git remote get-url origin > /dev/null 2>&1; then
+    git remote add origin "$REPO_URL"
+fi
 
-# Build and push
-echo -e "${YELLOW}⏳ This may take a few minutes...${NC}"
-docker buildx build --platform linux/amd64 -t ghcr.io/${GITHUB_USERNAME}/fantasy-forge:latest --push .
-
-echo ""
-echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}   ✅ Deployment Complete!${NC}"
-echo -e "${GREEN}========================================${NC}"
+echo -e "${BLUE}🚀 Pushing ${BRANCH}...${NC}"
+git push -u origin "$BRANCH"
+echo -e "${GREEN}✅ Pushed${NC}"
 echo ""
 
-# Display the Unraid setup instructions
-echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}   🖥️  UNRAID SETUP INSTRUCTIONS${NC}"
-echo -e "${BLUE}========================================${NC}"
-echo ""
-echo -e "${YELLOW}FIRST TIME SETUP:${NC}"
-echo ""
-echo -e "  1. SSH into your Unraid server."
-echo ""
-echo -e "  2. Login to GitHub Container Registry (one-time setup):"
-echo ""
-echo -e "     ${GREEN}echo 'YOUR_GITHUB_PAT_HERE' | docker login ghcr.io -u ${GITHUB_USERNAME} --password-stdin${NC}"
-echo ""
-echo -e "  3. Pull the latest image:"
-echo ""
-echo -e "     ${GREEN}docker pull ghcr.io/${GITHUB_USERNAME}/fantasy-forge:latest${NC}"
-echo ""
-echo -e "  4. Stop/remove any old containers (if exists):"
-echo ""
-echo -e "     ${GREEN}docker rm -f fantasy-forge 2>/dev/null || true${NC}"
-echo ""
-echo -e "  5. Run the container:"
-echo ""
-echo -e "     ${GREEN}docker run -d \\${NC}"
-echo -e "     ${GREEN}  --name fantasy-forge \\${NC}"
-echo -e "     ${GREEN}  --restart unless-stopped \\${NC}"
-echo -e "     ${GREEN}  -p 3085:3000 \\${NC}"
-echo -e "     ${GREEN}  ghcr.io/${GITHUB_USERNAME}/fantasy-forge:latest${NC}"
-echo ""
-echo -e "  6. Watch logs:"
-echo ""
-echo -e "     ${GREEN}docker logs -f fantasy-forge${NC}"
-echo ""
-echo -e "${YELLOW}TO UPDATE (after future deploys):${NC}"
-echo ""
-echo -e "     ${GREEN}docker pull ghcr.io/${GITHUB_USERNAME}/fantasy-forge:latest${NC}"
-echo -e "     ${GREEN}docker rm -f fantasy-forge 2>/dev/null || true${NC}"
-echo -e "     ${GREEN}docker run -d \\${NC}"
-echo -e "     ${GREEN}       --name fantasy-forge \\${NC}"
-echo -e "     ${GREEN}       --restart unless-stopped \\${NC}"
-echo -e "     ${GREEN}       -p 3085:3000 \\${NC}"
-echo -e "     ${GREEN}       ghcr.io/${GITHUB_USERNAME}/fantasy-forge:latest${NC}"
-echo ""
-echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}   🌐 Access: http://192.168.0.248:3085${NC}"
-echo -e "${BLUE}========================================${NC}"
+if [ "$BRANCH" = "main" ]; then
+    echo -e "${GREEN}GitHub Actions is now verifying and publishing the image.${NC}"
+    echo -e "Watch it: ${BLUE}https://github.com/${REPO}/actions/workflows/release.yml${NC}"
+    echo -e "Watchtower will roll the Unraid container once ${BLUE}:latest${NC} updates."
+else
+    echo -e "${YELLOW}Branch ${BRANCH} was pushed. Open a pull request and merge it to main to deploy:${NC}"
+    echo -e "${BLUE}https://github.com/${REPO}/compare/main...${BRANCH}?expand=1${NC}"
+fi
 echo ""

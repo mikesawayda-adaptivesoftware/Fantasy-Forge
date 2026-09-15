@@ -1,272 +1,308 @@
-import { PlayerWithStats, ComparisonResult, StartSitRecommendation, TradeAnalysis } from '@/types';
+import {
+  ComparisonCategory,
+  ComparisonResult,
+  FANTASY_POSITIONS,
+  Player,
+  PlayerWithStats,
+  StartSitRecommendation,
+  TradeAnalysis,
+  TradePlayerValue,
+  Winner,
+} from '@/types';
+import { MatchupInfo, MATCHUP_GRADE_LABELS } from './matchups';
+import { blendedValue } from './season';
+
+// ==========================================
+// AVAILABILITY
+// ==========================================
+
+const UNAVAILABLE_STATUSES = new Set(['Out', 'IR', 'Sus', 'PUP', 'NA', 'DNR', 'COV']);
+
+/** Injury designations that mean the player won't play */
+export function isUnavailable(injuryStatus: string | null | undefined): boolean {
+  return !!injuryStatus && UNAVAILABLE_STATUSES.has(injuryStatus);
+}
+
+/** Expected share of a normal workload given an injury designation */
+export function availabilityFactor(injuryStatus: string | null | undefined): number {
+  if (!injuryStatus) return 1;
+  if (isUnavailable(injuryStatus)) return 0;
+  if (injuryStatus === 'Doubtful') return 0.25;
+  if (injuryStatus === 'Questionable') return 0.9;
+  return 1;
+}
+
+export interface PlayerContext {
+  matchup?: MatchupInfo;
+}
+
+function effectiveProjection(player: PlayerWithStats, ctx?: PlayerContext): number {
+  if (ctx?.matchup?.bye) return 0;
+  return Math.max(0, player.projectedPoints ?? 0) * availabilityFactor(player.injuryStatus);
+}
+
+function pickWinner(v1: number, v2: number, higherIsBetter: boolean, epsilon = 0.05): Winner {
+  if (Math.abs(v1 - v2) <= epsilon) return 'tie';
+  return (v1 > v2) === higherIsBetter ? 'player1' : 'player2';
+}
+
+/** Volatility = standard deviation relative to average (lower is steadier) */
+export function volatility(player: PlayerWithStats): number | null {
+  if (player.stdDev === null || player.stdDev === undefined) return null;
+  const avg = player.avgPoints ?? 0;
+  if (avg <= 0) return null;
+  return Math.round((player.stdDev / avg) * 1000) / 1000;
+}
+
+// ==========================================
+// HEAD TO HEAD
+// ==========================================
 
 /**
- * Compare two players head-to-head
+ * Compare two players across projection, season average, recent form,
+ * volatility and matchup. Categories without data for both players are left
+ * out and the remaining weights are re-normalized.
  */
 export function comparePlayersHeadToHead(
   player1: PlayerWithStats,
-  player2: PlayerWithStats
+  player2: PlayerWithStats,
+  ctx1?: PlayerContext,
+  ctx2?: PlayerContext
 ): ComparisonResult {
-  const breakdown: ComparisonResult['breakdown'] = [];
+  const breakdown: ComparisonCategory[] = [];
 
-  // Compare projected points
-  const proj1 = player1.projectedPoints || 0;
-  const proj2 = player2.projectedPoints || 0;
-  breakdown.push({
-    category: 'Projected Points',
-    player1Value: proj1,
-    player2Value: proj2,
-    winner: proj1 > proj2 ? 'player1' : proj2 > proj1 ? 'player2' : 'tie',
-  });
+  const proj1 = effectiveProjection(player1, ctx1);
+  const proj2 = effectiveProjection(player2, ctx2);
+  breakdown.push({ category: 'Projected Points', player1Value: proj1, player2Value: proj2, winner: pickWinner(proj1, proj2, true), higherIsBetter: true, weight: 0.35, format: 'points' });
 
-  // Compare season average
-  const avg1 = player1.avgPoints || 0;
-  const avg2 = player2.avgPoints || 0;
-  breakdown.push({
-    category: 'Season Average',
-    player1Value: avg1,
-    player2Value: avg2,
-    winner: avg1 > avg2 ? 'player1' : avg2 > avg1 ? 'player2' : 'tie',
-  });
+  // Trust season/recent production in proportion to sample size (full weight at 4+ games)
+  const historyFactor = Math.min(1, Math.min(player1.gamesPlayed ?? 0, player2.gamesPlayed ?? 0) / 4);
+  if (historyFactor > 0) {
+    const avg1 = player1.avgPoints ?? 0;
+    const avg2 = player2.avgPoints ?? 0;
+    breakdown.push({ category: 'Season Average', player1Value: avg1, player2Value: avg2, winner: pickWinner(avg1, avg2, true), higherIsBetter: true, weight: 0.25 * historyFactor, format: 'points' });
 
-  // Compare recent form (last 3 weeks)
-  const recent1 = player1.recentAvgPoints || 0;
-  const recent2 = player2.recentAvgPoints || 0;
-  breakdown.push({
-    category: 'Recent Form (3wk)',
-    player1Value: recent1,
-    player2Value: recent2,
-    winner: recent1 > recent2 ? 'player1' : recent2 > recent1 ? 'player2' : 'tie',
-  });
+    const recent1 = player1.recentAvgPoints ?? 0;
+    const recent2 = player2.recentAvgPoints ?? 0;
+    breakdown.push({ category: 'Recent Form (3 games)', player1Value: recent1, player2Value: recent2, winner: pickWinner(recent1, recent2, true), higherIsBetter: true, weight: 0.25 * historyFactor, format: 'points' });
+  }
 
-  // Consistency (standard deviation of points)
-  const consistency1 = calculateConsistency(player1);
-  const consistency2 = calculateConsistency(player2);
-  breakdown.push({
-    category: 'Consistency',
-    player1Value: consistency1,
-    player2Value: consistency2,
-    winner: consistency1 < consistency2 ? 'player1' : consistency2 < consistency1 ? 'player2' : 'tie', // Lower is better
-  });
+  const vol1 = volatility(player1);
+  const vol2 = volatility(player2);
+  if (vol1 !== null && vol2 !== null) {
+    breakdown.push({ category: 'Volatility', player1Value: vol1, player2Value: vol2, winner: pickWinner(vol1, vol2, false, 0.01), higherIsBetter: false, weight: 0.05 * historyFactor, format: 'percent' });
+  }
 
-  // Determine overall winner with weighted scoring
-  // Weights: Projected (35%), Season Avg (25%), Recent Form (30%), Consistency (10%)
-  const weights = [0.35, 0.25, 0.30, 0.10];
-  let player1Score = 0;
-  let player2Score = 0;
-  
-  breakdown.forEach((cat, index) => {
-    const weight = weights[index] || 0.25;
-    const maxVal = Math.max(cat.player1Value, cat.player2Value, 0.1);
-    
-    // For consistency, lower is better, so invert the comparison
-    if (cat.category === 'Consistency') {
-      // Normalize: player with lower value gets higher score
-      const total = cat.player1Value + cat.player2Value;
-      if (total > 0) {
-        player1Score += (cat.player2Value / total) * weight * 100;
-        player2Score += (cat.player1Value / total) * weight * 100;
-      }
-    } else {
-      // Normalize: player with higher value gets proportionally higher score
-      player1Score += (cat.player1Value / maxVal) * weight * 100;
-      player2Score += (cat.player2Value / maxVal) * weight * 100;
+  const m1 = ctx1?.matchup?.entry?.multiplier;
+  const m2 = ctx2?.matchup?.entry?.multiplier;
+  if (m1 !== undefined && m2 !== undefined) {
+    breakdown.push({ category: 'Matchup', player1Value: m1, player2Value: m2, winner: pickWinner(m1, m2, true, 0.02), higherIsBetter: true, weight: 0.1, format: 'multiplier' });
+  }
+
+  const totalWeight = breakdown.reduce((sum, c) => sum + c.weight, 0);
+  let score1 = 0;
+  let score2 = 0;
+  for (const cat of breakdown) {
+    const weight = cat.weight / totalWeight;
+    const a = Math.max(0, cat.player1Value);
+    const b = Math.max(0, cat.player2Value);
+    const total = a + b;
+    if (total <= 0) {
+      score1 += weight * 50;
+      score2 += weight * 50;
+      continue;
     }
-  });
+    // Share of the combined value; inverted when lower is better
+    const share1 = cat.higherIsBetter ? a / total : b / total;
+    score1 += share1 * weight * 100;
+    score2 += (1 - share1) * weight * 100;
+  }
 
-  const winner: ComparisonResult['winner'] = 
-    player1Score > player2Score ? 'player1' : 
-    player2Score > player1Score ? 'player2' : 'tie';
+  const gap = Math.abs(score1 - score2); // 0..100
+  const winner: Winner = gap < 1 ? 'tie' : score1 > score2 ? 'player1' : 'player2';
+  // 50% when dead even, 100% at a 40-point share gap
+  const confidence = winner === 'tie' ? 50 : Math.min(100, Math.round(50 + gap * 1.25));
 
-  // Calculate confidence based on the percentage difference in scores
-  const totalScore = player1Score + player2Score;
-  const scoreDiff = Math.abs(player1Score - player2Score);
-  // Confidence scales from 50% (dead even) to 100% (complete dominance)
-  // A 20% relative difference = 75% confidence, 40% diff = 100% confidence
-  const relativeGap = totalScore > 0 ? (scoreDiff / totalScore) : 0;
-  const confidence = Math.min(100, Math.round(50 + (relativeGap * 250)));
-
-  return {
-    player1,
-    player2,
-    winner,
-    confidence,
-    breakdown,
-  };
+  return { player1, player2, winner, confidence, breakdown };
 }
 
-/**
- * Calculate consistency score (lower = more consistent)
- */
-function calculateConsistency(player: PlayerWithStats): number {
-  if (!player.gameLog || player.gameLog.length < 2) return 0;
+// ==========================================
+// START / SIT
+// ==========================================
 
-  const points = player.gameLog.map(g => g.fantasyPoints);
-  const mean = points.reduce((a, b) => a + b, 0) / points.length;
-  const squaredDiffs = points.map(p => Math.pow(p - mean, 2));
-  const avgSquaredDiff = squaredDiffs.reduce((a, b) => a + b, 0) / squaredDiffs.length;
-  
-  return Math.round(Math.sqrt(avgSquaredDiff) * 10) / 10; // Standard deviation
-}
-
-/**
- * Get Start/Sit recommendation
- */
 export function getStartSitRecommendation(
   player1: PlayerWithStats,
-  player2: PlayerWithStats
+  player2: PlayerWithStats,
+  ctx1?: PlayerContext,
+  ctx2?: PlayerContext
 ): StartSitRecommendation {
-  const comparison = comparePlayersHeadToHead(player1, player2);
-  const reasons: string[] = [];
+  const p1Out = isUnavailable(player1.injuryStatus) || !!ctx1?.matchup?.bye;
+  const p2Out = isUnavailable(player2.injuryStatus) || !!ctx2?.matchup?.bye;
+  const outReason = (p: PlayerWithStats, ctx?: PlayerContext) =>
+    ctx?.matchup?.bye ? `${p.name} is on a bye this week` : `${p.name} is listed as ${p.injuryStatus}`;
 
-  // Build reasons based on comparison
-  comparison.breakdown.forEach(cat => {
-    if (cat.winner !== 'tie') {
-      const winnerName = cat.winner === 'player1' ? player1.name : player2.name;
-      const diff = Math.abs(cat.player1Value - cat.player2Value);
-      
-      if (cat.category === 'Projected Points' && diff > 2) {
-        reasons.push(`${winnerName} has ${diff.toFixed(1)} more projected points this week`);
-      } else if (cat.category === 'Recent Form (3wk)' && diff > 3) {
-        reasons.push(`${winnerName} has been hotter recently (+${diff.toFixed(1)} PPG over last 3 weeks)`);
-      } else if (cat.category === 'Consistency') {
-        reasons.push(`${winnerName} is more consistent week-to-week`);
-      }
-    }
-  });
-
-  // Check injury status
-  if (player1.injuryStatus && !player2.injuryStatus) {
-    reasons.push(`${player1.name} is listed as ${player1.injuryStatus}`);
-  } else if (player2.injuryStatus && !player1.injuryStatus) {
-    reasons.push(`${player2.name} is listed as ${player2.injuryStatus}`);
-  }
-
-  // Determine start/sit
-  const start = comparison.winner === 'player1' ? player1 : player2;
-  const sit = comparison.winner === 'player1' ? player2 : player1;
-
-  // Adjust confidence for injury
-  let confidence = comparison.confidence;
-  if (start.injuryStatus === 'Out' || start.injuryStatus === 'IR') {
-    // If recommended start is out, flip recommendation
+  if (p1Out && p2Out) {
     return {
-      start: sit,
-      sit: start,
-      confidence: 90,
-      reasons: [`${start.name} is out with injury`],
+      start: player1,
+      sit: player2,
+      confidence: 50,
+      tossUp: true,
+      reasons: [outReason(player1, ctx1), outReason(player2, ctx2), 'Neither player is expected to play – look for a replacement'],
     };
   }
-
-  // Add default reason if none
-  if (reasons.length === 0) {
-    reasons.push(`${start.name} has a slight edge in overall projections`);
+  if (p1Out !== p2Out) {
+    const [start, sit, sitCtx] = p1Out ? [player2, player1, ctx1] : [player1, player2, ctx2];
+    return { start, sit, confidence: 95, tossUp: false, reasons: [outReason(sit, sitCtx)] };
   }
 
-  return {
-    start,
-    sit,
-    confidence,
-    reasons,
-  };
+  const comparison = comparePlayersHeadToHead(player1, player2, ctx1, ctx2);
+  const tossUp = comparison.winner === 'tie';
+  // On a tie, lean toward the higher projection (then player 1)
+  const p1Starts = tossUp
+    ? effectiveProjection(player1, ctx1) >= effectiveProjection(player2, ctx2)
+    : comparison.winner === 'player1';
+  const [start, sit] = p1Starts ? [player1, player2] : [player2, player1];
+  const reasons: string[] = [];
+
+  for (const cat of comparison.breakdown) {
+    if (cat.winner === 'tie') continue;
+    const winnerName = cat.winner === 'player1' ? player1.name : player2.name;
+    const diff = Math.abs(cat.player1Value - cat.player2Value);
+    if (cat.category === 'Projected Points' && diff >= 1) {
+      reasons.push(`${winnerName} is projected for ${diff.toFixed(1)} more points this week`);
+    } else if (cat.category === 'Recent Form (3 games)' && diff >= 3) {
+      const games = Math.min(3, player1.gamesPlayed ?? 0, player2.gamesPlayed ?? 0);
+      reasons.push(`${winnerName} has been hotter recently (+${diff.toFixed(1)} PPG over the last ${games === 1 ? 'game' : `${games} games`})`);
+    } else if (cat.category === 'Season Average' && diff >= 3) {
+      reasons.push(`${winnerName} averages ${diff.toFixed(1)} more points per game this season`);
+    } else if (cat.category === 'Volatility' && diff >= 0.15) {
+      reasons.push(`${winnerName} has been more consistent week to week`);
+    }
+  }
+
+  for (const [player, ctx] of [[player1, ctx1], [player2, ctx2]] as const) {
+    const grade = ctx?.matchup?.grade;
+    const entry = ctx?.matchup?.entry;
+    if (grade && entry && grade !== 'neutral') {
+      reasons.push(
+        `${player.name} has a ${MATCHUP_GRADE_LABELS[grade].toLowerCase()} matchup vs ${ctx?.matchup?.opponent} (allows ${entry.allowedPerGame} PPG to ${player.position}s, ${ordinal(entry.rank)} most)`
+      );
+    }
+    if (player.injuryStatus === 'Questionable' || player.injuryStatus === 'Doubtful') {
+      reasons.push(`${player.name} is ${player.injuryStatus} – check inactives before kickoff`);
+    }
+  }
+
+  if (reasons.length === 0) {
+    reasons.push(tossUp ? 'These players are virtually identical – go with your gut' : `${start.name} has a slight edge across the board`);
+  }
+
+  return { start, sit, confidence: comparison.confidence, tossUp, reasons };
 }
 
+// ==========================================
+// TRADE ANALYZER
+// ==========================================
+
+/** Weighted per-game value used for trades */
+export function playerTradeValue(player: PlayerWithStats): number {
+  const value = blendedValue({
+    projection: player.projectedPoints ?? 0,
+    avgPoints: player.avgPoints ?? 0,
+    recentAvgPoints: player.recentAvgPoints ?? 0,
+    gamesPlayed: player.gamesPlayed ?? 0,
+  });
+  // Short-term injuries matter less in trades than in a single week
+  const injuryFactor = isUnavailable(player.injuryStatus)
+    ? player.injuryStatus === 'IR' || player.injuryStatus === 'PUP' ? 0.5 : 0.8
+    : player.injuryStatus === 'Doubtful' ? 0.9 : 1;
+  return Math.round(value * injuryFactor * 10) / 10;
+}
+
+/** Approximate number of startable players per position in a 12-team league */
+export const DEFAULT_STARTERS_PER_POSITION: Record<string, number> = {
+  QB: 12, RB: 30, WR: 36, TE: 12, K: 12, DEF: 12,
+};
+
 /**
- * Analyze a trade
+ * Replacement level = value of the last "startable" player at each position.
+ * Anything below it can be found on waivers, so it adds no trade value.
  */
+export function computeReplacementLevels(
+  players: PlayerWithStats[],
+  startersPerPosition: Record<string, number> = DEFAULT_STARTERS_PER_POSITION
+): Record<string, number> {
+  const byPosition: Record<string, number[]> = {};
+  for (const player of players) {
+    (byPosition[player.position] ??= []).push(playerTradeValue(player));
+  }
+  const levels: Record<string, number> = {};
+  for (const position in byPosition) {
+    const values = byPosition[position].sort((a, b) => b - a);
+    const index = Math.min(values.length - 1, (startersPerPosition[position] ?? 12));
+    levels[position] = values.length ? values[Math.max(0, index)] : 0;
+  }
+  return levels;
+}
+
 export function analyzeTrade(
-  team1Players: PlayerWithStats[],
-  team2Players: PlayerWithStats[]
+  givePlayers: PlayerWithStats[],
+  receivePlayers: PlayerWithStats[],
+  replacementLevels: Record<string, number>
 ): TradeAnalysis {
-  // Calculate total value for each side
-  // Value = weighted average of projected, season avg, and recent form
-  const calculatePlayerValue = (player: PlayerWithStats): number => {
-    const proj = player.projectedPoints || 0;
-    const avg = player.avgPoints || 0;
-    const recent = player.recentAvgPoints || 0;
-    
-    // Weight: 40% projected, 30% season avg, 30% recent
-    let value = (proj * 0.4) + (avg * 0.3) + (recent * 0.3);
-    
-    // Apply positional scarcity multiplier
-    const scarcityMultiplier = getPositionalScarcity(player.position);
-    value *= scarcityMultiplier;
-    
-    // Penalty for injuries
-    if (player.injuryStatus === 'Out' || player.injuryStatus === 'IR') {
-      value *= 0.5;
-    } else if (player.injuryStatus === 'Questionable') {
-      value *= 0.85;
-    }
-    
-    return Math.round(value * 10) / 10;
+  const valueOf = (player: PlayerWithStats): TradePlayerValue => {
+    const rawValue = playerTradeValue(player);
+    const replacementValue = replacementLevels[player.position] ?? 0;
+    return {
+      player,
+      rawValue,
+      replacementValue,
+      valueOverReplacement: Math.round(Math.max(0, rawValue - replacementValue) * 10) / 10,
+    };
   };
 
-  const team1Value = team1Players.reduce((sum, p) => sum + calculatePlayerValue(p), 0);
-  const team2Value = team2Players.reduce((sum, p) => sum + calculatePlayerValue(p), 0);
-  const valueDifference = Math.abs(team1Value - team2Value);
+  const give = givePlayers.map(valueOf);
+  const receive = receivePlayers.map(valueOf);
+  const giveValue = round1(give.reduce((sum, p) => sum + p.valueOverReplacement, 0));
+  const receiveValue = round1(receive.reduce((sum, p) => sum + p.valueOverReplacement, 0));
+  const valueDifference = round1(Math.abs(giveValue - receiveValue));
+  const fairThreshold = Math.max(1.5, Math.max(giveValue, receiveValue) * 0.1);
 
-  // Determine winner
   let winner: TradeAnalysis['winner'];
   let recommendation: string;
-
-  if (valueDifference < 2) {
+  if (valueDifference <= fairThreshold) {
     winner = 'fair';
-    recommendation = 'This trade is relatively fair. Consider team needs and roster construction.';
-  } else if (team1Value > team2Value) {
-    winner = 'team1';
-    recommendation = `Team 1 wins this trade by ${valueDifference.toFixed(1)} points of value.`;
+    recommendation = 'This trade is close to even. Let roster needs and bye weeks decide.';
+  } else if (receiveValue > giveValue) {
+    winner = 'receive';
+    recommendation = `You gain ${valueDifference.toFixed(1)} points per week of value over replacement-level players.`;
   } else {
-    winner = 'team2';
-    recommendation = `Team 2 wins this trade by ${valueDifference.toFixed(1)} points of value.`;
+    winner = 'give';
+    recommendation = `You give up ${valueDifference.toFixed(1)} points per week of value over replacement-level players.`;
   }
 
-  return {
-    team1Players,
-    team2Players,
-    team1Value: Math.round(team1Value * 10) / 10,
-    team2Value: Math.round(team2Value * 10) / 10,
-    winner,
-    valueDifference: Math.round(valueDifference * 10) / 10,
-    recommendation,
-  };
-}
-
-/**
- * Get positional scarcity multiplier
- * Higher value = more scarce/valuable
- */
-function getPositionalScarcity(position: string): number {
-  const scarcity: Record<string, number> = {
-    QB: 1.0,    // Deep position
-    RB: 1.15,   // Most scarce
-    WR: 1.05,   // Slightly above average
-    TE: 1.1,    // Premium TEs are scarce
-    K: 0.8,     // Easily replaceable
-    DEF: 0.85,  // Streamable
-  };
-  return scarcity[position] || 1.0;
-}
-
-/**
- * Get tier for a player based on points
- */
-export function getPlayerTier(avgPoints: number, position: string): number {
-  // Tier thresholds vary by position
-  const thresholds: Record<string, number[]> = {
-    QB: [25, 20, 15, 10],
-    RB: [20, 15, 10, 5],
-    WR: [18, 14, 10, 6],
-    TE: [15, 10, 6, 3],
-    K: [10, 8, 6, 4],
-    DEF: [12, 9, 6, 3],
-  };
-
-  const tiers = thresholds[position] || thresholds.WR;
-  
-  for (let i = 0; i < tiers.length; i++) {
-    if (avgPoints >= tiers[i]) return i + 1;
+  let rosterSpotNote: string | undefined;
+  const spotDiff = receivePlayers.length - givePlayers.length;
+  if (spotDiff > 0) {
+    rosterSpotNote = `You receive ${spotDiff} more player${spotDiff > 1 ? 's' : ''} than you send – you'll need to drop ${spotDiff}. Depth below replacement level adds no value.`;
+  } else if (spotDiff < 0) {
+    rosterSpotNote = `You open ${-spotDiff} roster spot${spotDiff < -1 ? 's' : ''}, which you can fill from waivers.`;
   }
-  return 5; // Lowest tier
+
+  return { givePlayers: give, receivePlayers: receive, giveValue, receiveValue, winner, valueDifference, recommendation, rosterSpotNote };
 }
 
+export function isListedPlayer(player: Player): boolean {
+  if (player.team === 'FA' || !FANTASY_POSITIONS.includes(player.position)) return false;
+  return player.position === 'DEF' || player.status !== 'Inactive';
+}
+
+export function ordinal(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+function round1(n: number): number {
+  return Math.round(n * 10) / 10;
+}

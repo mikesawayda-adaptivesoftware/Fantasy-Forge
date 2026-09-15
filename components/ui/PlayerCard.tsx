@@ -1,10 +1,12 @@
 'use client';
 
-import Image from 'next/image';
 import Link from 'next/link';
+import { ReactNode } from 'react';
 import { Player, PlayerWithStats } from '@/types';
-import { getPositionBadgeClass, formatPoints, getInjuryStatusColor } from '@/lib/utils';
-import { getHeadshotUrl } from '@/lib/sleeper';
+import { formatPoints } from '@/lib/utils';
+import PlayerAvatar from './PlayerAvatar';
+import PositionBadge from './PositionBadge';
+import InjuryBadge from './InjuryBadge';
 
 interface PlayerCardProps {
   player: Player | PlayerWithStats;
@@ -12,93 +14,68 @@ interface PlayerCardProps {
   onClick?: () => void;
   selected?: boolean;
   compact?: boolean;
+  /** Extra content under the team line (e.g. a matchup badge) */
+  meta?: ReactNode;
+  /** Replace the default stats column */
+  aside?: ReactNode;
 }
 
-export default function PlayerCard({ player, showStats = false, onClick, selected = false, compact = false }: PlayerCardProps) {
-  const hasStats = 'avgPoints' in player;
-  const playerWithStats = hasStats ? (player as PlayerWithStats) : null;
+export default function PlayerCard({ player, showStats = false, onClick, selected = false, compact = false, meta, aside }: PlayerCardProps) {
+  const stats = 'avgPoints' in player ? (player as PlayerWithStats) : null;
 
   const content = (
     <div
       className={`
-        group bg-field-card/50 border rounded-xl
-        transition-all duration-200 hover:shadow-lg hover:-translate-y-1
+        group bg-field-card/50 border rounded-xl text-left w-full
+        transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5
         ${compact ? 'p-3' : 'p-4'}
-        ${selected 
-          ? 'border-turf bg-turf/10 shadow-lg shadow-turf/20' 
-          : 'border-field-border hover:border-turf'
-        }
-        ${onClick ? 'cursor-pointer' : ''}
+        ${selected ? 'border-turf bg-turf/10 shadow-lg shadow-turf/20' : 'border-field-border hover:border-turf'}
       `}
-      onClick={onClick}
     >
       <div className={`flex items-center ${compact ? 'gap-3' : 'gap-4'}`}>
-        {/* Player Headshot */}
-        <div className={`relative rounded-full overflow-hidden bg-field-elevated flex-shrink-0 ${
-          compact ? 'w-10 h-10' : 'w-16 h-16'
-        }`}>
-          <Image
-            src={getHeadshotUrl(player.id, player.position)}
-            alt={player.name}
-            fill
-            className="object-cover"
-            unoptimized
-          />
-        </div>
+        <PlayerAvatar id={player.id} name={player.name} position={player.position} size={compact ? 'sm' : 'lg'} />
 
-        {/* Player Info */}
         <div className="flex-1 min-w-0">
           <div className={`flex items-center gap-2 ${compact ? '' : 'mb-1'}`}>
-            <h3 className={`font-semibold text-white truncate group-hover:text-turf transition-colors ${
-              compact ? 'text-sm' : ''
-            }`}>
+            <p className={`font-semibold text-white truncate group-hover:text-turf transition-colors ${compact ? 'text-sm' : ''}`}>
               {player.name}
-            </h3>
-            {player.injuryStatus && (
-              <span className={`px-1.5 py-0.5 text-xs rounded ${getInjuryStatusColor(player.injuryStatus)}`}>
-                {player.injuryStatus}
-              </span>
-            )}
+            </p>
+            <InjuryBadge status={player.injuryStatus} />
           </div>
-          
-          <div className={`flex items-center gap-2 ${compact ? 'text-xs' : 'text-sm'}`}>
-            <span className={`px-2 py-0.5 rounded text-xs font-bold ${getPositionBadgeClass(player.position)}`}>
-              {player.position}
-            </span>
+
+          <div className={`flex flex-wrap items-center gap-2 ${compact ? 'text-xs' : 'text-sm'}`}>
+            <PositionBadge position={player.position} variant="solid" />
             <span className="text-text-secondary">{player.team}</span>
-            {!compact && player.number && (
-              <span className="text-text-muted">#{player.number}</span>
-            )}
+            {!compact && player.number && <span className="text-text-muted">#{player.number}</span>}
+            {meta}
           </div>
         </div>
 
-        {/* Stats (if available) */}
-        {showStats && playerWithStats && !compact && (
-          <div className="text-right flex-shrink-0">
-            <div className="stat-number text-2xl text-gold">
-              {formatPoints(playerWithStats.projectedPoints || 0)}
+        {aside ??
+          (showStats && stats && !compact && (
+            <div className="text-right flex-shrink-0">
+              <div className="stat-number text-2xl text-gold">{formatPoints(stats.projectedPoints)}</div>
+              <div className="text-xs text-text-muted">Projected</div>
+              {(stats.gamesPlayed ?? 0) > 0 && (
+                <div className="text-sm text-text-secondary mt-1">Avg: {formatPoints(stats.avgPoints)}</div>
+              )}
             </div>
-            <div className="text-xs text-text-muted">Projected</div>
-            {playerWithStats.avgPoints !== undefined && (
-              <div className="text-sm text-text-secondary mt-1">
-                Avg: {formatPoints(playerWithStats.avgPoints)}
-              </div>
-            )}
-          </div>
-        )}
+          ))}
       </div>
     </div>
   );
 
-  // If no onClick, wrap in Link
-  if (!onClick) {
+  if (onClick) {
     return (
-      <Link href={`/players/${player.id}`}>
+      <button type="button" onClick={onClick} className="block w-full" aria-pressed={selected}>
         {content}
-      </Link>
+      </button>
     );
   }
 
-  return content;
+  return (
+    <Link href={`/players/${player.id}`} className="block">
+      {content}
+    </Link>
+  );
 }
-
