@@ -9,7 +9,7 @@ import { useAsync } from '@/lib/hooks/useAsync';
 import { useHydrated } from '@/lib/hooks/useLocalStorage';
 import { getLeagueMatchups, getLeagueRosters, getLeagueUsers, getTeamName } from '@/lib/sleeper';
 import { calcPoints } from '@/lib/points';
-import { analyzeRosterLineup, getCurrentStarters, leagueHasIdp, resolvePlayer } from '@/lib/league';
+import { analyzeRosterLineup, getCurrentStarters, leagueHasIdp, playerGameState, projectedFinal, resolvePlayer } from '@/lib/league';
 import { formatPoints, formatSigned } from '@/lib/utils';
 import LoadingState from '@/components/ui/LoadingState';
 import ErrorState from '@/components/ui/ErrorState';
@@ -48,7 +48,7 @@ export default function MyTeamsPage() {
   const hydrated = useHydrated();
   const { username, user, leagues, loading: leaguesLoading, error: leaguesError, retry } = useUserLeagues();
   const anyIdp = leagues.some(l => leagueHasIdp(l.roster_positions));
-  const data = useFantasyData({ includeIdp: anyIdp, refreshMs: 120_000 });
+  const data = useFantasyData({ includeIdp: anyIdp, refreshMs: 120_000, weekMode: 'current' });
   const week = data.ctx?.week ?? null;
 
   const bundles = useAsync(week && leagues.length ? `${leagues.map(l => l.league_id).join(',')}:${week}` : null, () =>
@@ -100,6 +100,18 @@ export default function MyTeamsPage() {
         : null;
       const opponentOwner = opponentRoster ? users.find(u => u.user_id === opponentRoster.owner_id) ?? null : null;
 
+      // Once games start, show live points and a projected final instead
+      const starterIds = getCurrentStarters(roster, matchup);
+      const opponentStarterIds = opponentRoster ? getCurrentStarters(opponentRoster, opponentMatchup) : [];
+      const live = [...starterIds.map(id => [id, matchup] as const), ...opponentStarterIds.map(id => [id, opponentMatchup] as const)].some(([id, m]) => {
+        if (!id || id === '0') return false;
+        const state = playerGameState(schedule, resolvePlayer(id, playersById).team, week, m?.players_points?.[id]);
+        return state === 'in_game' || state === 'complete';
+      });
+      const projectedMap = new Map([...starterIds, ...opponentStarterIds].filter(id => id && id !== '0').map(id => [id, projectionFor(id)]));
+      const finalFor = (ids: string[], m: SleeperMatchup | null) =>
+        projectedFinal({ starterIds: ids, playersById, schedule, week, actualPoints: m?.players_points ?? {}, projected: projectedMap });
+
       const name = (id: string) => resolvePlayer(id, playersById).name;
       const actions: ActionItem[] = [];
       for (const s of analysis.inactiveStarters) actions.push({ severity: 'critical', text: `${name(s.id)} is starting but won't play (${s.reason})` });
@@ -121,8 +133,11 @@ export default function MyTeamsPage() {
           projected: analysis.optimization.currentTotal,
           opponentProjected: opponentProjected !== null ? Math.round(opponentProjected * 10) / 10 : null,
           opponentName: opponentRoster ? getTeamName(opponentOwner, opponentRoster.roster_id) : null,
+          live,
           actual: matchup?.points ?? 0,
           opponentActual: opponentMatchup?.points ?? 0,
+          projectedFinal: live ? finalFor(starterIds, matchup) : null,
+          opponentProjectedFinal: live && opponentRoster ? finalFor(opponentStarterIds, opponentMatchup) : null,
         },
       ];
     });
@@ -201,10 +216,23 @@ export default function MyTeamsPage() {
                     </div>
                     {team.opponentProjected !== null && (
                       <div className="text-right flex-shrink-0">
-                        <div className={`stat-number ${winning ? 'text-turf' : 'text-red'}`}>
-                          {formatPoints(team.projected)} – {formatPoints(team.opponentProjected)}
-                        </div>
-                        <div className="text-xs text-text-muted">projected</div>
+                        {team.live ? (
+                          <>
+                            <div className={`stat-number ${(team.projectedFinal ?? 0) >= (team.opponentProjectedFinal ?? 0) ? 'text-turf' : 'text-red'}`}>
+                              {formatPoints(team.actual)} – {formatPoints(team.opponentActual)}
+                            </div>
+                            <div className="text-xs text-text-muted">
+                              live · proj. {formatPoints(team.projectedFinal)} – {formatPoints(team.opponentProjectedFinal)}
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className={`stat-number ${winning ? 'text-turf' : 'text-red'}`}>
+                              {formatPoints(team.projected)} – {formatPoints(team.opponentProjected)}
+                            </div>
+                            <div className="text-xs text-text-muted">projected</div>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>

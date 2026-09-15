@@ -29,7 +29,7 @@ export default function StandingsView({ league }: { league: LeagueData }) {
             return (
               <tr
                 key={roster.roster_id}
-                className={`border-b border-field-border/50 ${isUser ? 'bg-turf/10' : ''} ${playoffTeams && index === playoffTeams - 1 ? 'border-b-2 border-b-turf/40' : ''}`}
+                className={`border-b border-field-border/50 ${isUser ? 'bg-turf/10' : ''} ${playoffTeams && playoffTeams < standings.length && index === playoffTeams - 1 ? 'border-b-2 border-b-turf/40' : ''}`}
               >
                 <td className="px-4 py-3">
                   <span className={`font-semibold ${RANK_COLORS[index] ?? 'text-text-muted'}`}>{index + 1}</span>
@@ -52,7 +52,9 @@ export default function StandingsView({ league }: { league: LeagueData }) {
           })}
         </tbody>
       </table>
-      {playoffTeams ? <p className="text-xs text-text-muted px-4 py-2">Line marks the playoff cutoff ({playoffTeams} teams).</p> : null}
+      {playoffTeams && playoffTeams < standings.length ? (
+        <p className="text-xs text-text-muted px-4 py-2">Line marks the playoff cutoff ({playoffTeams} teams).</p>
+      ) : null}
     </div>
   );
 }

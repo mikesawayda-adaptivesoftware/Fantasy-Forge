@@ -62,7 +62,7 @@ function CompareContent() {
     <div className="space-y-6">
       <SectionHeader icon="⚔️" title="Player Comparison" />
       <p className="text-text-muted text-sm">
-        Week {data.ctx?.week} · {data.scoringLabel} scoring · compare up to {MAX_PLAYERS} players · the URL updates so you can share it
+        Week {data.week} · {data.scoringLabel} scoring · compare up to {MAX_PLAYERS} players · the URL updates so you can share it
       </p>
 
       <div className={`grid gap-4 ${players.length >= 3 ? 'sm:grid-cols-2 xl:grid-cols-4' : 'md:grid-cols-2'}`}>

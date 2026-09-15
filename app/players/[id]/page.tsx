@@ -116,7 +116,7 @@ export default function PlayerDetailPage({ params }: PageProps) {
         <div className="grid grid-cols-3 gap-3 text-center w-full md:w-auto">
           <div className="bg-field-dark rounded-lg p-3">
             <div className="stat-number text-2xl text-gold">{formatPoints(player.projectedPoints)}</div>
-            <div className="text-xs text-text-muted">Week {ctx.week} Proj</div>
+            <div className="text-xs text-text-muted">Week {data.week} Proj</div>
           </div>
           <div className="bg-field-dark rounded-lg p-3">
             <div className="stat-number text-2xl text-turf">{formatPoints(player.avgPoints)}</div>
@@ -137,10 +137,10 @@ export default function PlayerDetailPage({ params }: PageProps) {
           </h3>
 
           {thisWeek?.bye ? (
-            <p className="text-text-secondary mb-4">On bye in Week {ctx.week}.</p>
+            <p className="text-text-secondary mb-4">On bye in Week {data.week}.</p>
           ) : thisWeek?.game ? (
             <div className={`rounded-lg border p-4 mb-4 ${MATCHUP_GRADE_CLASSES[thisWeek.grade ?? 'neutral']}`}>
-              <div className="text-xs uppercase tracking-wide opacity-80">Week {ctx.week}</div>
+              <div className="text-xs uppercase tracking-wide opacity-80">Week {data.week}</div>
               <div className="text-lg font-semibold">
                 {formatOpponent(thisWeek.game)} {thisWeek.grade && `· ${MATCHUP_GRADE_LABELS[thisWeek.grade]} matchup`}
               </div>

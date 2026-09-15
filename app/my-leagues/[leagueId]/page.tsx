@@ -38,6 +38,7 @@ function LeagueDashboard({ leagueId }: { leagueId: string }) {
     scoring: league.league?.scoring_settings,
     includeIdp: leagueHasIdp(league.league?.roster_positions),
     refreshMs: 120_000,
+    weekMode: 'current',
   });
   const [params, setParams] = useQueryParams(['tab'] as const);
   const activeTab: TabKey = TABS.some(t => t.key === params.tab) ? (params.tab as TabKey) : 'matchup';
@@ -98,7 +99,7 @@ function LeagueDashboard({ leagueId }: { leagueId: string }) {
         {activeTab === 'roster' && <RosterView league={league} data={data} />}
         {activeTab === 'standings' && <StandingsView league={league} />}
         {activeTab === 'power' && <PowerRankingsView league={league} />}
-        {activeTab === 'playoffs' && <PlayoffOddsView league={league} />}
+        {activeTab === 'playoffs' && <PlayoffOddsView league={league} data={data} />}
         {activeTab === 'transactions' && <TransactionsView league={league} data={data} />}
       </TabPanel>
     </div>

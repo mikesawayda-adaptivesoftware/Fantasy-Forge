@@ -70,7 +70,7 @@ export default function PlayersPage() {
       </SectionHeader>
 
       <p className="text-text-muted text-sm">
-        Week {data.ctx?.week} · {data.scoringLabel} scoring{statsSeasonNote}
+        Week {data.week} · {data.scoringLabel} scoring{statsSeasonNote}
       </p>
 
       <div className="space-y-4">
@@ -86,7 +86,7 @@ export default function PlayersPage() {
             >
               <option value="rank">Fantasy Rank</option>
               <option value="name">Name (A-Z)</option>
-              <option value="projected">Projected (Week {data.ctx?.week})</option>
+              <option value="projected">Projected (Week {data.week})</option>
               <option value="total">Total Points (Season)</option>
               <option value="average">Avg Points/Game</option>
             </select>

@@ -3,6 +3,8 @@
 import { useMemo } from 'react';
 import { SleeperRoster } from '@/types';
 import { LeagueData } from '@/lib/hooks/useLeagueData';
+import { FantasyData } from '@/lib/hooks/useFantasyData';
+import { analyzeRosterLineup } from '@/lib/league';
 import { useAsync } from '@/lib/hooks/useAsync';
 import { getLeagueMatchups } from '@/lib/sleeper';
 import { getScoredWeeks, toWeeklyScores } from '@/lib/power-rankings';
@@ -26,7 +28,7 @@ function pctClass(pct: number): string {
   return 'text-red';
 }
 
-export default function PlayoffOddsView({ league }: { league: LeagueData }) {
+export default function PlayoffOddsView({ league, data }: { league: LeagueData; data: FantasyData }) {
   const info = league.league;
   const playoffStart = info?.settings.playoff_week_start || 15;
   const playoffTeams = info?.settings.playoff_teams || 6;
@@ -49,9 +51,30 @@ export default function PlayoffOddsView({ league }: { league: LeagueData }) {
 
   // The dashboard refreshes rosters every 2 minutes; only re-simulate when standings change
   const standingsJson = JSON.stringify(
-    league.rosters.map(r => ({ roster_id: r.roster_id, owner_id: r.owner_id, settings: r.settings }))
+    league.rosters.map(r => ({ roster_id: r.roster_id, owner_id: r.owner_id, settings: r.settings, players: r.players, starters: r.starters, reserve: r.reserve, taxi: r.taxi }))
   );
   const rosters = useMemo(() => JSON.parse(standingsJson) as SleeperRoster[], [standingsJson]);
+
+  // Projected optimal lineup for each team – the prior before games are scored
+  const { playersById, projected } = data;
+  const week = league.week;
+  const rosterPositions = info?.roster_positions;
+  const priorMeans = useMemo(() => {
+    if (!week || !rosterPositions) return undefined;
+    const means: Record<number, number> = {};
+    for (const roster of rosters) {
+      means[roster.roster_id] = analyzeRosterLineup({
+        rosterPositions,
+        roster,
+        matchup: null,
+        playersById,
+        schedule: null,
+        week,
+        projectionFor: id => projected.get(id) ?? 0,
+      }).optimization.optimalTotal;
+    }
+    return means;
+  }, [rosters, week, rosterPositions, playersById, projected]);
 
   const rows = useMemo(() => {
     if (!matchups.data || rosters.length === 0) return null;
@@ -61,9 +84,10 @@ export default function PlayoffOddsView({ league }: { league: LeagueData }) {
       remaining: matchups.data.future,
       playoffTeams,
       medianGame: info?.settings.league_average_match === 1,
+      priorMeans,
     });
     return sortOdds(odds, rosters);
-  }, [matchups.data, rosters, playoffTeams, info]);
+  }, [matchups.data, rosters, playoffTeams, info, priorMeans]);
 
   if (matchups.error) return <ErrorState message={matchups.error.message} onRetry={matchups.reload} />;
   if (!rows) return <LoadingState message="Simulating the rest of the season..." />;
@@ -75,7 +99,7 @@ export default function PlayoffOddsView({ league }: { league: LeagueData }) {
       <div className="bg-field-card/30 border border-field-border rounded-xl p-4 text-sm text-text-secondary">
         <p>
           5,000 simulations of {remainingWeeks.length ? `weeks ${remainingWeeks[0]}–${remainingWeeks[remainingWeeks.length - 1]}` : 'the remaining schedule'} using each
-          team&apos;s scoring average and volatility. Top {playoffTeams} make the playoffs, seeded by record then points
+          team&apos;s scoring average and volatility (blended with its projected lineup early in the season). Top {playoffTeams} make the playoffs, seeded by record then points
           {info?.settings.league_average_match === 1 ? ', with the weekly median game included' : ''}. Divisions aren&apos;t modeled.
         </p>
         {remainingWeeks.length === 0 && <p className="mt-1 text-gold">The regular season is over – these are the final seeds.</p>}

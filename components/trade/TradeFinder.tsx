@@ -35,7 +35,8 @@ export default function TradeFinder({ slots, userRoster, rosters, toInput, teamN
     const you = { rosterId: userRoster.roster_id, players: rosterInputs(userRoster, toInput) };
     const partners = rosters.filter(r => r.roster_id !== userRoster.roster_id);
     // Deep rosters (IDP) make each evaluation slower, so consider fewer candidates
-    const options = { candidatesPerTeam: slots.length > 12 ? 7 : 9 };
+    // Only surface meaningful upgrades that the partner can live with
+    const options = { candidatesPerTeam: slots.length > 12 ? 7 : 9, minGain: 1, maxPartnerLoss: 0.25 };
     const found: TradeIdea[] = [];
     let evaluated = 0;
     for (let i = 0; i < partners.length; i++) {
@@ -74,7 +75,7 @@ export default function TradeFinder({ slots, userRoster, rosters, toInput, teamN
       {running && <LoadingSpinner />}
 
       {ideas && ideas.length === 0 && (
-        <p className="text-sm text-text-muted">No trades found that help you without hurting the other team. Your roster may already be well balanced.</p>
+        <p className="text-sm text-text-muted">No trades found that add at least a point per week without costing the other team. Your roster may already be well balanced.</p>
       )}
 
       {ideas && ideas.length > 0 && (

@@ -54,3 +54,22 @@ describe('helpers', () => {
     expect(week.pairs).toEqual([[1, 2]]);
   });
 });
+
+describe('priorMeans', () => {
+  it('differentiates teams before any games are scored', () => {
+    const fresh = [1, 2, 3, 4].map(id => roster(id, 0, 0, 0));
+    const rotation: [number, number][][] = [[[1, 2], [3, 4]], [[1, 3], [2, 4]], [[1, 4], [2, 3]]];
+    const remaining = Array.from({ length: 12 }, (_, i) => ({ week: i + 1, pairs: rotation[i % 3] }));
+    const rows = simulatePlayoffOdds({
+      rosters: fresh,
+      completed: [],
+      remaining,
+      playoffTeams: 2,
+      simulations: 2000,
+      priorMeans: { 1: 140, 2: 120, 3: 100, 4: 90 },
+    });
+    const pct = (id: number) => rows.find(r => r.rosterId === id)!.playoffPct;
+    expect(pct(1)).toBeGreaterThan(pct(2));
+    expect(pct(2)).toBeGreaterThan(pct(4));
+  });
+});

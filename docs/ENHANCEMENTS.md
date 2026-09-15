@@ -63,22 +63,26 @@ Browser ─▶ /api/nfl/* (app/api) ─▶ lib/server/sleeper.ts (in-memory cach
 
 ## 1. Open items
 
-### 1.1 Check the league features end-to-end with a real account (P0)
-- **Why:** browser tests use synthetic data. Standings, power rankings, playoff odds and the transaction feed were checked against a real (historical) Sleeper league, but these have never been run against a real, current roster:
-  - This Week (live scores and clock)
-  - Lineup (kickoff locks)
-  - My Roster
-  - Waiver suggestions
-  - My Teams
-  - Trade finder
-  - Dynasty picks
-  - IDP optimization
-- **Approach:** On a game day, connect a real Sleeper username and go through every league tab, `/my-teams`, `/waivers` and `/trade?league=…`. Check:
-  - players lock exactly at kickoff;
-  - live scores match Sleeper;
-  - injury notes are current;
-  - the trade finder completes in a few seconds for a 12-team league.
-- **Done when:** bugs found are fixed with regression tests (unit tests, or a new e2e fixture case).
+### 1.1 Real-account checks – mostly done; confirm on a Sunday (P1)
+- **Done 2026-09-15** during Monday Night Football with the owner's account (2 redraft leagues: 12-team Half PPR, 8-team PPR). Checked and working:
+  - This Week live scores, game clock and projected finals
+  - Kickoff locks on the Lineup tab
+  - My Roster, Standings and Transactions
+  - Playoff Odds
+  - My Teams (live scores, exposure)
+  - Waivers (upcoming-week projections, IR tip)
+  - Trade finder: 1.3 s for 12 teams and 0.9 s for 8, with no long frames
+- **Fixed as a result:**
+  - projections now move to the upcoming week once every game has kicked off
+  - preseason playoff odds use projected lineups instead of a flat 50%
+  - My Teams shows live scores
+  - the trade finder only shows deals worth at least 1 point per week
+  - waivers suggest using an open IR slot
+  - the standings cutoff line is hidden when every team makes the playoffs
+- **Still to verify:**
+  - a Sunday early window, where players should lock at 1pm and swaps between locked and unlocked players should behave
+  - a dynasty league (picks), an IDP league and a superflex league. Owner leagues don't cover these; use a friend's public league ID.
+- **Done when:** those are checked, and any bugs are fixed with tests.
 
 ### 1.2 Push notifications for lineup problems (P2)
 - **Why:** the app is installable, but alerts like "a starter was ruled out" still require opening it.

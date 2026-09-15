@@ -27,6 +27,12 @@ export interface PlayoffOddsInput {
   playoffTeams: number;
   /** League plays an extra game each week against the league median */
   medianGame?: boolean;
+  /**
+   * Expected weekly score per roster (e.g. projected optimal lineup). Used as
+   * the prior instead of the league average, so odds are meaningful before
+   * any games are scored.
+   */
+  priorMeans?: Record<number, number>;
   simulations?: number;
   seed?: number;
 }
@@ -80,7 +86,7 @@ export function byeCount(playoffTeams: number): number {
  * points for, like Sleeper's default tiebreakers (divisions are ignored).
  */
 export function simulatePlayoffOdds(input: PlayoffOddsInput): PlayoffOddsRow[] {
-  const { rosters, completed, remaining, playoffTeams, medianGame = false, simulations = 5000, seed = 20260914 } = input;
+  const { rosters, completed, remaining, playoffTeams, medianGame = false, priorMeans, simulations = 5000, seed = 20260914 } = input;
   const random = mulberry32(seed);
   const ids = rosters.map(r => r.roster_id);
   const n = ids.length;
@@ -88,13 +94,19 @@ export function simulatePlayoffOdds(input: PlayoffOddsInput): PlayoffOddsRow[] {
 
   // Team strength
   const allScores = completed.flatMap(w => Object.values(w.scores));
-  const leagueMean = allScores.length ? allScores.reduce((a, b) => a + b, 0) / allScores.length : 100;
+  const priorValues = priorMeans ? Object.values(priorMeans).filter(v => v > 0) : [];
+  const leagueMean = allScores.length
+    ? allScores.reduce((a, b) => a + b, 0) / allScores.length
+    : priorValues.length
+      ? priorValues.reduce((a, b) => a + b, 0) / priorValues.length
+      : 100;
   const leagueSd = allScores.length > 1 ? Math.sqrt(allScores.reduce((s, v) => s + (v - leagueMean) ** 2, 0) / (allScores.length - 1)) : 20;
   const SHRINK_GAMES = 3;
   const strength = ids.map(id => {
     const scores = completed.map(w => w.scores[id]).filter((v): v is number => typeof v === 'number');
     const sum = scores.reduce((a, b) => a + b, 0);
-    const mean = (sum + leagueMean * SHRINK_GAMES) / (scores.length + SHRINK_GAMES);
+    const prior = priorMeans?.[id] && priorMeans[id] > 0 ? priorMeans[id] : leagueMean;
+    const mean = (sum + prior * SHRINK_GAMES) / (scores.length + SHRINK_GAMES);
     const variance = scores.length > 1 ? scores.reduce((s, v) => s + (v - sum / scores.length) ** 2, 0) / (scores.length - 1) : leagueSd ** 2;
     // Blend team and league variance so a few steady weeks don't imply certainty
     const sd = Math.sqrt((variance * scores.length + leagueSd ** 2 * SHRINK_GAMES) / (scores.length + SHRINK_GAMES));

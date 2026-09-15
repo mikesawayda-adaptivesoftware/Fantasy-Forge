@@ -59,7 +59,12 @@ function WaiversContent() {
   const data = useFantasyData({ scoring: league?.scoring_settings, includeIdp: idp });
   const userRoster = findUserRoster(leagueRosters, user?.user_id);
   const trendingById = useMemo(() => new Map((trending ?? []).map(t => [t.player_id, t.count])), [trending]);
-  const week = data.ctx?.week ?? 1;
+  const week = data.week ?? 1;
+
+  // Sleeper allows IR for IR/PUP/Sus (and Out when the league permits it)
+  const openIrSlots = Math.max(0, (league?.settings.reserve_slots ?? 0) - (userRoster?.reserve?.length ?? 0));
+  const canUseIr = (status: string | null | undefined) =>
+    openIrSlots > 0 && !!status && (['IR', 'PUP', 'Sus', 'NA', 'DNR'].includes(status) || (status === 'Out' && league?.settings.reserve_allow_out === 1));
   const error = leaguesError ?? rostersError;
 
   const { ready, playersById, seasons, schedule, projected, listedPlayers, players } = data;
@@ -237,6 +242,11 @@ function WaiversContent() {
                         {s.weekGain !== 0 && ` (${formatSigned(s.weekGain)} this week)`}.
                         {trendingCount ? ` Added in ${trendingCount.toLocaleString()} Sleeper leagues in the last 24h.` : ''}
                       </p>
+                      {canUseIr(drop.injuryStatus) && (
+                        <p className="mt-2 text-sm text-gold">
+                          🏥 {drop.name} is eligible for IR and you have an open IR slot – move them there instead of dropping to open a roster spot.
+                        </p>
+                      )}
                     </div>
                   );
                 })}
