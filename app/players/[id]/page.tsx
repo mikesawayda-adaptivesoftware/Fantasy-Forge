@@ -17,6 +17,7 @@ import PlayerAvatar from '@/components/ui/PlayerAvatar';
 import PositionBadge from '@/components/ui/PositionBadge';
 import InjuryBadge, { formatInjuryUpdated } from '@/components/ui/InjuryBadge';
 import MatchupBadge from '@/components/ui/MatchupBadge';
+import WeeklyPointsChart from '@/components/ui/WeeklyPointsChart';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -185,7 +186,7 @@ export default function PlayerDetailPage({ params }: PageProps) {
             <SummaryStat label="Volatility" value={vol === null ? '—' : `${Math.round(vol * 100)}%`} color="text-text-primary" hint="Std. deviation ÷ average (lower is steadier)" />
           </div>
           <div className="grid sm:grid-cols-3 gap-2">
-            <Link href={`/compare?player1=${player.id}`} className="btn-primary text-center text-sm">
+            <Link href={`/compare?players=${player.id}`} className="btn-primary text-center text-sm">
               Compare
             </Link>
             <Link href={`/start-sit?player1=${player.id}`} className="btn-secondary text-center text-sm">
@@ -203,6 +204,21 @@ export default function PlayerDetailPage({ params }: PageProps) {
         <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
           <span aria-hidden>📅</span> Game Log
         </h3>
+
+        {gameLog.length > 0 && (
+          <div className="mb-6">
+            <WeeklyPointsChart
+              gameLog={gameLog}
+              average={player.avgPoints}
+              projections={Object.fromEntries(
+                gameLog.map(g => {
+                  const projStats = weeklyProjections[g.week]?.[player.id];
+                  return [g.week, projStats ? calcPoints(projStats, data.scoring) : undefined];
+                })
+              )}
+            />
+          </div>
+        )}
 
         {gameLog.length > 0 ? (
           <div className="overflow-x-auto">
@@ -232,7 +248,8 @@ export default function PlayerDetailPage({ params }: PageProps) {
                       <tr key={game.week} className="border-b border-field-border/50">
                         <td className="py-3 pr-4 font-medium text-white">Week {game.week}</td>
                         <td className="py-3 pr-4 text-text-secondary">
-                          {game.opponent ? `${game.home ? 'vs' : '@'} ${game.opponent}` : '—'}
+                          {game.opponent ? `${game.home === false ? '@' : 'vs'} ${game.opponent}` : '—'}
+                          {game.team && game.team !== player.team && <span className="text-xs text-text-muted"> (with {game.team})</span>}
                         </td>
                         <td className="py-3 pr-4 text-right">
                           <span className={`stat-number text-lg ${performance === 'great' ? 'text-turf' : performance === 'poor' ? 'text-red' : 'text-white'}`}>

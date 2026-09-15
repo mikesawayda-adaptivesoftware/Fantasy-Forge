@@ -128,6 +128,87 @@ export function comparePlayersHeadToHead(
 }
 
 // ==========================================
+// MULTI-PLAYER COMPARISON
+// ==========================================
+
+export interface MultiComparisonCategory {
+  category: string;
+  values: number[];
+  /** Index of the best player in this category, or null on a tie */
+  bestIndex: number | null;
+  higherIsBetter: boolean;
+  weight: number;
+  format: 'points' | 'percent' | 'multiplier';
+}
+
+export interface MultiComparisonResult {
+  players: PlayerWithStats[];
+  /** Weighted share of each category (sums to 100) */
+  scores: number[];
+  /** Player indexes from best to worst */
+  ranking: number[];
+  /** 50–100; how clearly #1 beats #2 */
+  confidence: number;
+  tie: boolean;
+  categories: MultiComparisonCategory[];
+}
+
+/**
+ * Rank 2–4 players with the same categories and weights as head-to-head.
+ * Each category awards shares of 100 points: proportional to value, or to
+ * (total − value) when lower is better. With two players this reduces exactly
+ * to comparePlayersHeadToHead.
+ */
+export function comparePlayersMulti(players: PlayerWithStats[], contexts: (PlayerContext | undefined)[] = []): MultiComparisonResult {
+  const n = players.length;
+  const categories: MultiComparisonCategory[] = [];
+  const add = (category: string, values: number[], higherIsBetter: boolean, weight: number, format: MultiComparisonCategory['format'], epsilon: number) => {
+    const best = higherIsBetter ? Math.max(...values) : Math.min(...values);
+    const bestIndexes = values.map((v, i) => (Math.abs(v - best) <= epsilon ? i : -1)).filter(i => i >= 0);
+    categories.push({ category, values, bestIndex: bestIndexes.length === 1 ? bestIndexes[0] : null, higherIsBetter, weight, format });
+  };
+
+  add('Projected Points', players.map((p, i) => effectiveProjection(p, contexts[i])), true, 0.35, 'points', 0.05);
+
+  const historyFactor = Math.min(1, Math.min(...players.map(p => p.gamesPlayed ?? 0)) / 4);
+  if (historyFactor > 0) {
+    add('Season Average', players.map(p => p.avgPoints ?? 0), true, 0.25 * historyFactor, 'points', 0.05);
+    add('Recent Form (3 games)', players.map(p => p.recentAvgPoints ?? 0), true, 0.25 * historyFactor, 'points', 0.05);
+  }
+
+  const vols = players.map(volatility);
+  if (vols.every(v => v !== null)) add('Volatility', vols as number[], false, 0.05 * historyFactor, 'percent', 0.01);
+
+  const multipliers = contexts.map(c => c?.matchup?.entry?.multiplier);
+  if (multipliers.length === n && multipliers.every(m => m !== undefined)) add('Matchup', multipliers as number[], true, 0.1, 'multiplier', 0.02);
+
+  const totalWeight = categories.reduce((sum, c) => sum + c.weight, 0) || 1;
+  const scores = new Array(n).fill(0);
+  for (const cat of categories) {
+    const weight = cat.weight / totalWeight;
+    const values = cat.values.map(v => Math.max(0, v));
+    const total = values.reduce((a, b) => a + b, 0);
+    for (let i = 0; i < n; i++) {
+      const share = total <= 0 ? 1 / n : cat.higherIsBetter ? values[i] / total : (total - values[i]) / ((n - 1) * total);
+      scores[i] += share * weight * 100;
+    }
+  }
+
+  const ranking = scores.map((_, i) => i).sort((a, b) => scores[b] - scores[a]);
+  // Rescale so the gap means the same thing regardless of player count
+  const gap = n > 1 ? (scores[ranking[0]] - scores[ranking[1]]) * (n / 2) : 100;
+  const tie = gap < 1;
+  return {
+    players,
+    scores: scores.map(s => Math.round(s * 10) / 10),
+    ranking,
+    confidence: tie ? 50 : Math.min(100, Math.round(50 + gap * 1.25)),
+    tie,
+    categories,
+  };
+}
+
+// ==========================================
 // START / SIT
 // ==========================================
 
