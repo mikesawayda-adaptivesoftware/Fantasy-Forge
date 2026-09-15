@@ -89,3 +89,15 @@ describe('optimizeLineup', () => {
     expect(result.benched.map(b => b.id)).toEqual(['db1']);
   });
 });
+
+describe('multi-position eligibility', () => {
+  it('lets a player fill any slot for any position they qualify at', () => {
+    const result = optimizeLineup({
+      slots: ['DL', 'LB'],
+      currentStarters: ['0', '0'],
+      candidates: [c('edge', 'LB', 12, { positions: ['LB', 'DL'] }), c('lb', 'LB', 10)],
+    });
+    expect(result.optimal.map(a => a.playerId)).toEqual(['edge', 'lb']);
+    expect(result.optimalTotal).toBe(22);
+  });
+});

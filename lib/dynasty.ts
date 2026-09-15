@@ -83,12 +83,14 @@ const ROUND_VALUES = [6, 3, 1.5, 0.75];
 const FUTURE_DISCOUNT = 0.85;
 
 /**
- * Value of a pick. Next year's picks are adjusted by where the original team
- * currently sits in the standings (worse record → earlier pick → more value).
+ * Value of a pick. Picks in the next draft are adjusted by where the original
+ * team sits in the standings (worse record → earlier pick → more value); later
+ * drafts are discounted per year. Pass `standingsRank` only once games have
+ * been played – preseason standings say nothing about draft order.
  */
-export function pickValue(pick: DraftPick, params: { currentSeason: number; standingsRank?: Map<number, number>; teams: number }): number {
+export function pickValue(pick: DraftPick, params: { firstDraftSeason: number; standingsRank?: Map<number, number>; teams: number }): number {
   const base = ROUND_VALUES[pick.round - 1] ?? 0.25;
-  const yearsOut = Math.max(0, Number(pick.season) - params.currentSeason - 1);
+  const yearsOut = Math.max(0, Number(pick.season) - params.firstDraftSeason);
   let value = base * Math.pow(FUTURE_DISCOUNT, yearsOut);
   const rank = params.standingsRank?.get(pick.originalRosterId);
   if (yearsOut === 0 && rank && params.teams > 1) {

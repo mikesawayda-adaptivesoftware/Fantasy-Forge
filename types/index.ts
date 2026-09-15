@@ -43,6 +43,7 @@ export interface SleeperPlayer {
   injury_body_part?: string | null;
   injury_notes?: string | null;
   search_rank?: number | null;
+  fantasy_positions?: string[] | null;
 }
 
 // Simplified player for UI (served by /api/nfl/players)
@@ -52,6 +53,8 @@ export interface Player {
   firstName: string;
   lastName: string;
   position: Position;
+  /** Every fantasy position the player is eligible at, when more than `position` */
+  fantasyPositions?: Position[];
   team: string; // 'FA' when unsigned
   age?: number;
   experience?: number;

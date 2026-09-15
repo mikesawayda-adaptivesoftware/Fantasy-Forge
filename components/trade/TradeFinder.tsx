@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { SleeperRoster } from '@/types';
-import { findTradesWithPartner, scoreIdea, TradeIdea } from '@/lib/trade-finder';
+import { candidateTrades, createTradeEvaluator, TradeIdea, topIdeas } from '@/lib/trade-finder';
 import { WaiverPlayerInput } from '@/lib/waivers';
 import { formatSigned } from '@/lib/utils';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
@@ -34,15 +34,24 @@ export default function TradeFinder({ slots, userRoster, rosters, toInput, teamN
     setProgress(0);
     const you = { rosterId: userRoster.roster_id, players: rosterInputs(userRoster, toInput) };
     const partners = rosters.filter(r => r.roster_id !== userRoster.roster_id);
+    // Deep rosters (IDP) make each evaluation slower, so consider fewer candidates
+    const options = { candidatesPerTeam: slots.length > 12 ? 7 : 9 };
     const found: TradeIdea[] = [];
+    let evaluated = 0;
     for (let i = 0; i < partners.length; i++) {
-      // Yield between teams so the page stays responsive
-      await new Promise(resolve => setTimeout(resolve, 0));
       const partner = { rosterId: partners[i].roster_id, players: rosterInputs(partners[i], toInput) };
-      found.push(...findTradesWithPartner(slots, you, partner, { ideasPerTeam: 2 }));
+      const evaluator = createTradeEvaluator(slots, you, partner, options);
+      const partnerIdeas: TradeIdea[] = [];
+      for (const candidate of candidateTrades(you, partner, options)) {
+        // Yield to the browser often so the page stays responsive on phones
+        if (++evaluated % 15 === 0) await new Promise(resolve => setTimeout(resolve, 0));
+        const idea = evaluator.evaluate(candidate);
+        if (idea) partnerIdeas.push(idea);
+      }
+      found.push(...topIdeas(partnerIdeas, 2));
       setProgress(Math.round(((i + 1) / partners.length) * 100));
     }
-    setIdeas(found.sort((a, b) => scoreIdea(b) - scoreIdea(a)).slice(0, 12));
+    setIdeas(topIdeas(found, 12));
     setRunning(false);
   };
 

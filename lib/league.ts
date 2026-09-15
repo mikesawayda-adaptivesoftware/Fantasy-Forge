@@ -173,6 +173,7 @@ export function analyzeRosterLineup(params: {
     return {
       id,
       position: player.position,
+      positions: player.fantasyPositions,
       projected: projectionFor(id),
       locked: state === 'in_game' || state === 'complete',
       unavailableReason: bye ? 'Bye week' : isUnavailable(player.injuryStatus) ? `Listed as ${player.injuryStatus}` : undefined,

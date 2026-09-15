@@ -38,6 +38,56 @@ function pairs<T>(items: T[]): [T, T][] {
   return result;
 }
 
+export interface TradeCandidate {
+  give: WaiverPlayerInput[];
+  receive: WaiverPlayerInput[];
+}
+
+/** Every 1-for-1 (and optionally 2-for-1 / 1-for-2) package worth evaluating */
+export function candidateTrades(you: TradeRoster, partner: TradeRoster, options: TradeFinderOptions = {}): TradeCandidate[] {
+  const { candidatesPerTeam = 10, includePackages = true } = options;
+  const top = (players: WaiverPlayerInput[], n: number) => [...players].sort((a, b) => b.value - a.value).slice(0, n);
+  const yours = top(you.players, candidatesPerTeam);
+  const theirs = top(partner.players, candidatesPerTeam);
+  const candidates: TradeCandidate[] = [];
+  for (const give of yours) for (const receive of theirs) candidates.push({ give: [give], receive: [receive] });
+  if (includePackages) {
+    const small = Math.min(6, candidatesPerTeam);
+    for (const [a, b] of pairs(top(you.players, small))) for (const receive of top(partner.players, small)) candidates.push({ give: [a, b], receive: [receive] });
+    for (const give of top(you.players, small)) for (const [a, b] of pairs(top(partner.players, small))) candidates.push({ give: [give], receive: [a, b] });
+  }
+  return candidates;
+}
+
+export interface TradeEvaluator {
+  evaluate: (candidate: TradeCandidate) => TradeIdea | null;
+}
+
+/**
+ * Re-solves both teams' best lineups for a candidate trade. Base lineups are
+ * computed once per partner.
+ */
+export function createTradeEvaluator(slots: string[], you: TradeRoster, partner: TradeRoster, options: TradeFinderOptions = {}): TradeEvaluator {
+  const { minGain = 0.5, maxPartnerLoss = 0.5 } = options;
+  const baseYou = lineupTotal(slots, you.players, 'value');
+  const basePartner = lineupTotal(slots, partner.players, 'value');
+  return {
+    evaluate: ({ give, receive }) => {
+      const yourGain = lineupTotal(slots, withSwap(you.players, give.map(p => p.id), receive), 'value') - baseYou;
+      if (yourGain < minGain) return null;
+      const partnerGain = lineupTotal(slots, withSwap(partner.players, receive.map(p => p.id), give), 'value') - basePartner;
+      if (partnerGain < -maxPartnerLoss) return null;
+      return {
+        partnerRosterId: partner.rosterId,
+        giveIds: give.map(p => p.id),
+        receiveIds: receive.map(p => p.id),
+        yourGain: Math.round(yourGain * 10) / 10,
+        partnerGain: Math.round(partnerGain * 10) / 10,
+      };
+    },
+  };
+}
+
 /**
  * Find trades with one partner that improve your optimal lineup without
  * making theirs meaningfully worse. Each candidate is evaluated by re-solving
@@ -50,37 +100,16 @@ export function findTradesWithPartner(
   partner: TradeRoster,
   options: TradeFinderOptions = {}
 ): TradeIdea[] {
-  const { candidatesPerTeam = 10, includePackages = true, minGain = 0.5, maxPartnerLoss = 0.5, ideasPerTeam = 3 } = options;
-  const baseYou = lineupTotal(slots, you.players, 'value');
-  const basePartner = lineupTotal(slots, partner.players, 'value');
-  const top = (players: WaiverPlayerInput[], n: number) => [...players].sort((a, b) => b.value - a.value).slice(0, n);
-  const yourCandidates = top(you.players, candidatesPerTeam);
-  const partnerCandidates = top(partner.players, candidatesPerTeam);
+  const { ideasPerTeam = 3 } = options;
+  const evaluator = createTradeEvaluator(slots, you, partner, options);
+  const ideas = candidateTrades(you, partner, options)
+    .map(evaluator.evaluate)
+    .filter((idea): idea is TradeIdea => idea !== null);
+  return topIdeas(ideas, ideasPerTeam);
+}
 
-  const ideas: TradeIdea[] = [];
-  const evaluate = (give: WaiverPlayerInput[], receive: WaiverPlayerInput[]) => {
-    const yourGain = lineupTotal(slots, withSwap(you.players, give.map(p => p.id), receive), 'value') - baseYou;
-    if (yourGain < minGain) return;
-    const partnerGain = lineupTotal(slots, withSwap(partner.players, receive.map(p => p.id), give), 'value') - basePartner;
-    if (partnerGain < -maxPartnerLoss) return;
-    ideas.push({
-      partnerRosterId: partner.rosterId,
-      giveIds: give.map(p => p.id),
-      receiveIds: receive.map(p => p.id),
-      yourGain: Math.round(yourGain * 10) / 10,
-      partnerGain: Math.round(partnerGain * 10) / 10,
-    });
-  };
-
-  for (const give of yourCandidates) for (const receive of partnerCandidates) evaluate([give], [receive]);
-
-  if (includePackages) {
-    const small = Math.min(6, candidatesPerTeam);
-    for (const [a, b] of pairs(top(you.players, small))) for (const receive of top(partner.players, small)) evaluate([a, b], [receive]);
-    for (const give of top(you.players, small)) for (const [a, b] of pairs(top(partner.players, small))) evaluate([give], [a, b]);
-  }
-
-  return ideas.sort((a, b) => scoreIdea(b) - scoreIdea(a)).slice(0, ideasPerTeam);
+export function topIdeas(ideas: TradeIdea[], count: number): TradeIdea[] {
+  return [...ideas].sort((a, b) => scoreIdea(b) - scoreIdea(a)).slice(0, count);
 }
 
 /** Prefer big gains for you, but reward trades the partner also benefits from */

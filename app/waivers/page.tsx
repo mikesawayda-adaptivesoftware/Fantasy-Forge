@@ -81,6 +81,7 @@ function WaiversContent() {
       return {
         id,
         position: player.position,
+        positions: player.fantasyPositions,
         weekProjection: bye ? 0 : projection * availabilityFactor(player.injuryStatus),
         value: blendedValue({
           projection: projection * (player.injuryStatus === 'IR' ? 0.25 : 1),

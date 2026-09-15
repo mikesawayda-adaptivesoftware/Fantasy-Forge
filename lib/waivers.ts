@@ -5,6 +5,7 @@ export { blendedValue } from './season';
 export interface WaiverPlayerInput {
   id: string;
   position: string;
+  positions?: string[];
   /** Projection for the current week (already 0 for bye/out) */
   weekProjection: number;
   /** Longer-term weekly value (blend of projection, season and recent averages) */
@@ -23,7 +24,7 @@ export interface WaiverSuggestion {
 
 /** Best possible lineup total for a set of players using one metric */
 export function lineupTotal(slots: string[], players: WaiverPlayerInput[], metric: 'value' | 'weekProjection'): number {
-  const candidates: LineupCandidate[] = players.map(p => ({ id: p.id, position: p.position, projected: p[metric] }));
+  const candidates: LineupCandidate[] = players.map(p => ({ id: p.id, position: p.position, positions: p.positions, projected: p[metric] }));
   return optimizeLineup({ slots, currentStarters: [], candidates }).optimalTotal;
 }
 

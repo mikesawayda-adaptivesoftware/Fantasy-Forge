@@ -45,11 +45,13 @@ function CompareContent() {
   const contexts = players.map(p => ({ matchup: data.getMatchup(p) }));
   const result = players.length >= 2 ? comparePlayersMulti(players, contexts) : null;
 
+  // Work from resolved players so unknown IDs in a URL can't shift indexes
+  const playerIds = players.map(p => p.id);
   const writeIds = (next: string[]) => setParams({ players: next.join(',') || null, player1: null, player2: null });
 
   const handleSelect = (player: Player) => {
-    if (picking === 'add') writeIds([...ids, player.id]);
-    else if (typeof picking === 'number') writeIds(ids.map((id, i) => (i === picking ? player.id : id)));
+    if (picking === 'add') writeIds([...playerIds, player.id].slice(0, MAX_PLAYERS));
+    else if (typeof picking === 'number') writeIds(playerIds.map((id, i) => (i === picking ? player.id : id)));
     setPicking(null);
   };
 
@@ -81,7 +83,7 @@ function CompareContent() {
                 <button type="button" onClick={() => setPicking(index)} className="text-text-muted hover:text-turf">
                   Change
                 </button>
-                <button type="button" onClick={() => writeIds(ids.filter((_, i) => i !== index))} className="text-text-muted hover:text-red">
+                <button type="button" onClick={() => writeIds(playerIds.filter((_, i) => i !== index))} className="text-text-muted hover:text-red">
                   Remove
                 </button>
               </div>
@@ -113,7 +115,7 @@ function CompareContent() {
           players={data.listedPlayers}
           onSelect={handleSelect}
           onClose={() => setPicking(null)}
-          excludeIds={ids}
+          excludeIds={playerIds}
           initialPosition={players[0]?.position ?? 'ALL'}
           hint={players[0] ? `Filtered to ${players[0].position} – change the filter to compare across positions` : undefined}
         />

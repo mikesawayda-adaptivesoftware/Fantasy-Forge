@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { SleeperLeague, SleeperLeagueUser, SleeperMatchup, SleeperRoster } from '@/types';
 import { useFantasyData } from '@/lib/hooks/useFantasyData';
@@ -63,6 +63,15 @@ export default function MyTeamsPage() {
       })
     )
   );
+
+  // Keep rosters, lineups and live points current (NFL data refreshes via useFantasyData)
+  const reloadBundles = bundles.reload;
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (document.visibilityState === 'visible') reloadBundles();
+    }, 120_000);
+    return () => clearInterval(id);
+  }, [reloadBundles]);
 
   const { playersById, schedule, projections } = data;
   const teams = useMemo(() => {

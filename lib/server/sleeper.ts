@@ -36,17 +36,19 @@ interface CacheEntry<T> {
 }
 
 const store = new Map<string, CacheEntry<unknown>>();
-const MAX_ENTRIES = 250;
+const MAX_ENTRIES = 400;
+// Expensive to rebuild and Sleeper asks for sparing use
+const PINNED_KEYS = new Set(['players']);
 
 /** Drop expired entries, then the soonest-to-expire ones if still over the cap */
 function evict() {
   if (store.size <= MAX_ENTRIES) return;
   const now = Date.now();
   for (const [key, entry] of store) {
-    if (!entry.pending && entry.expires <= now) store.delete(key);
+    if (!entry.pending && entry.expires <= now && !PINNED_KEYS.has(key)) store.delete(key);
   }
   if (store.size <= MAX_ENTRIES) return;
-  const settled = [...store.entries()].filter(([, e]) => !e.pending).sort((a, b) => a[1].expires - b[1].expires);
+  const settled = [...store.entries()].filter(([key, e]) => !e.pending && !PINNED_KEYS.has(key)).sort((a, b) => a[1].expires - b[1].expires);
   for (const [key] of settled.slice(0, store.size - MAX_ENTRIES)) store.delete(key);
 }
 
@@ -54,11 +56,16 @@ function evict() {
  * Cache `loader` results for `ttlMs`. Concurrent callers share one request and
  * stale data is served (briefly) if a refresh fails.
  */
-export async function cached<T>(key: string, ttlMs: number, loader: () => Promise<T>): Promise<T> {
+export async function cached<T>(
+  key: string,
+  ttlMs: number,
+  loader: () => Promise<T>,
+  options: { staleWhileRevalidate?: boolean } = {}
+): Promise<T> {
   const entry = store.get(key) as CacheEntry<T> | undefined;
   const now = Date.now();
   if (entry?.value !== undefined && entry.expires > now) return entry.value;
-  if (entry?.pending) return entry.pending;
+  if (entry?.pending) return options.staleWhileRevalidate && entry.value !== undefined ? entry.value : entry.pending;
 
   const pending = loader()
     .then(value => {
@@ -77,6 +84,8 @@ export async function cached<T>(key: string, ttlMs: number, loader: () => Promis
     });
 
   store.set(key, { value: entry?.value, expires: entry?.expires ?? 0, pending });
+  // Serve the previous value immediately and refresh in the background
+  if (options.staleWhileRevalidate && entry?.value !== undefined) return entry.value;
   return pending;
 }
 
@@ -109,8 +118,31 @@ export function getNflState(): Promise<NflState> {
 // PLAYERS
 // ==========================================
 
+// Sleeper lists many defenders by their NFL position (DE, CB, OLB...); IDP
+// leagues use DL/LB/DB, which appear in fantasy_positions.
+const IDP_POSITION_MAP: Record<string, Position> = {
+  DL: 'DL', DE: 'DL', DT: 'DL', NT: 'DL',
+  LB: 'LB', ILB: 'LB', OLB: 'LB', MLB: 'LB',
+  DB: 'DB', CB: 'DB', S: 'DB', SS: 'DB', FS: 'DB',
+};
+
+/** Fantasy positions a player is eligible at (e.g. an edge rusher at LB and DL) */
+export function fantasyPositionsOf(sleeper: Pick<SleeperPlayer, 'position' | 'fantasy_positions'>): Position[] {
+  const raw = sleeper.fantasy_positions?.length ? sleeper.fantasy_positions : [sleeper.position];
+  const result: Position[] = [];
+  for (const pos of raw) {
+    const mapped = FANTASY_POSITIONS.includes(pos as Position) ? (pos as Position) : IDP_POSITION_MAP[pos];
+    if (mapped && !result.includes(mapped)) result.push(mapped);
+  }
+  return result;
+}
+
 function transformPlayer(sleeper: SleeperPlayer): Player {
-  const isDefense = sleeper.position === 'DEF';
+  const positions = fantasyPositionsOf(sleeper);
+  const primary: Position = FANTASY_POSITIONS.includes(sleeper.position)
+    ? sleeper.position
+    : IDP_POSITION_MAP[sleeper.position] ?? positions[0] ?? sleeper.position;
+  const isDefense = primary === 'DEF';
   const team = sleeper.team || 'FA';
   const name = isDefense
     ? `${TEAM_NAMES[sleeper.player_id] ?? `${sleeper.first_name} ${sleeper.last_name}`} DEF`
@@ -121,9 +153,11 @@ function transformPlayer(sleeper: SleeperPlayer): Player {
     name,
     firstName: sleeper.first_name,
     lastName: sleeper.last_name,
-    position: sleeper.position,
+    position: primary,
     team,
   };
+  // Only sent when it adds information (multi-position eligibility)
+  if (positions.length > 1 || (positions.length === 1 && positions[0] !== primary)) player.fantasyPositions = positions;
   if (sleeper.age) player.age = sleeper.age;
   if (sleeper.years_exp !== undefined && sleeper.years_exp !== null) player.experience = sleeper.years_exp;
   if (sleeper.college) player.college = sleeper.college;
@@ -150,11 +184,12 @@ export function getPlayers(): Promise<Player[]> {
     const players: Player[] = [];
     for (const id in raw) {
       const p = raw[id];
-      if (!PLAYER_POSITIONS.includes(p.position as Position)) continue;
       if (!p.team && !p.active) continue;
+      const player = transformPlayer(p);
+      if (!PLAYER_POSITIONS.includes(player.position)) continue;
       // IDP free agents are never needed
-      if (!FANTASY_POSITIONS.includes(p.position as Position) && !p.team) continue;
-      players.push(transformPlayer(p));
+      if (IDP_POSITIONS.includes(player.position) && !p.team) continue;
+      players.push(player);
     }
     // Defenses have no search rank; slot them after skill players by team name
     let defenseRank = 500;
@@ -211,24 +246,26 @@ interface SleeperWeeklyRow {
  * player dump without calling that endpoint more often.
  */
 export function getInjuries(): Promise<Map<string, InjuryInfo>> {
-  return cached('injuries', 20 * MINUTE, async () => {
-    const ctx = resolveSeasonContext(await getNflState());
-    const rows = await fetchSleeper<SleeperWeeklyRow[] | null>(
-      `/projections/nfl/${ctx.season}/${ctx.week}?season_type=regular`,
-      SLEEPER_WEB_API
-    );
-    const injuries = new Map<string, InjuryInfo>();
-    for (const row of rows ?? []) {
-      if (!row.player) continue;
-      injuries.set(row.player_id, {
-        status: row.player.injury_status ?? null,
-        bodyPart: row.player.injury_body_part ?? null,
-        notes: row.player.injury_notes ?? null,
-        updatedAt: row.player.news_updated ?? null,
-      });
-    }
-    return injuries;
-  });
+  return cached('injuries', 20 * MINUTE, loadInjuries, { staleWhileRevalidate: true });
+}
+
+async function loadInjuries(): Promise<Map<string, InjuryInfo>> {
+  const ctx = resolveSeasonContext(await getNflState());
+  const rows = await fetchSleeper<SleeperWeeklyRow[] | null>(
+    `/projections/nfl/${ctx.season}/${ctx.week}?season_type=regular`,
+    SLEEPER_WEB_API
+  );
+  const injuries = new Map<string, InjuryInfo>();
+  for (const row of rows ?? []) {
+    if (!row.player) continue;
+    injuries.set(row.player_id, {
+      status: row.player.injury_status ?? null,
+      bodyPart: row.player.injury_body_part ?? null,
+      notes: row.player.injury_notes ?? null,
+      updatedAt: row.player.news_updated ?? null,
+    });
+  }
+  return injuries;
 }
 
 const mergedPlayers = new WeakMap<Player[], { injuries: Map<string, InjuryInfo>; players: Player[] }>();
@@ -399,10 +436,11 @@ const POSITION_QUERY = {
  */
 export async function getWeeklyStats(season: string, week: number, idp = false): Promise<WeeklyStatsPayload> {
   const ttl = await weeklyTtl(season, week);
-  return cached(`stats:${season}:${week}:${idp ? 'idp' : 'off'}`, ttl, async () => {
-    const ids = await idsFor(idp);
-    const payload: WeeklyStatsPayload = { stats: {}, teams: {} };
-    try {
+  const suffix = `${season}:${week}:${idp ? 'idp' : 'off'}`;
+  try {
+    return await cached(`stats:${suffix}`, ttl, async () => {
+      const ids = await idsFor(idp);
+      const payload: WeeklyStatsPayload = { stats: {}, teams: {} };
       const rows = await fetchSleeper<SleeperWeeklyRow[] | null>(
         `/stats/nfl/${season}/${week}?season_type=regular&${idp ? POSITION_QUERY.idp : POSITION_QUERY.fantasy}`,
         SLEEPER_WEB_API
@@ -413,15 +451,20 @@ export async function getWeeklyStats(season: string, week: number, idp = false):
         if (row.team && row.opponent) payload.teams[row.player_id] = [row.team, row.opponent];
       }
       return payload;
-    } catch (error) {
-      console.warn(`[sleeper] web stats failed for ${season} week ${week}, using v1`, error);
+    });
+  } catch (error) {
+    // Short-lived fallback (no per-week teams) so a blip doesn't stick for hours
+    console.warn(`[sleeper] web stats failed for ${season} week ${week}, using v1`, error);
+    return cached(`stats-v1:${suffix}`, 5 * MINUTE, async () => {
+      const ids = await idsFor(idp);
+      const payload: WeeklyStatsPayload = { stats: {}, teams: {} };
       const raw = await fetchSleeper<Record<string, Record<string, unknown>> | null>(`/v1/stats/nfl/regular/${season}/${week}`);
       for (const playerId in raw ?? {}) {
         if (ids.has(playerId)) payload.stats[playerId] = trimStatLine(raw![playerId]);
       }
       return payload;
-    }
-  });
+    });
+  }
 }
 
 /** Weekly projections for fantasy-relevant (or IDP) players */

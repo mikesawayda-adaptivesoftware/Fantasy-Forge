@@ -76,8 +76,11 @@ function TradeContent() {
       seasons: dynasty ? 3 : 1,
       rounds: Math.min(draftRounds, dynasty ? 5 : draftRounds),
     });
-    const standingsRank = new Map([...rosters].sort(compareStandings).map((r, i) => [r.roster_id, i + 1]));
-    return all.map(pick => ({ pick, value: pickValue(pick, { currentSeason: Number(league.season), standingsRank, teams: rosters.length }) }));
+    // Standings only predict draft order once games have been played
+    const gamesPlayed = rosters.some(r => r.settings.wins + r.settings.losses + r.settings.ties > 0);
+    const standingsRank = gamesPlayed ? new Map([...rosters].sort(compareStandings).map((r, i) => [r.roster_id, i + 1])) : undefined;
+    const firstDraftSeason = nextDraftSeason(league);
+    return all.map(pick => ({ pick, value: pickValue(pick, { firstDraftSeason, standingsRank, teams: rosters.length }) }));
   }, [league, rosters, leagueData.data, ctx, dynasty]);
 
   if (data.loading || leagueData.loading) return <LoadingState />;
@@ -152,7 +155,7 @@ function TradeContent() {
         recentAvgPoints: player.recentAvgPoints ?? 0,
         gamesPlayed: player.gamesPlayed ?? 0,
       }) * (dynasty ? dynastyAgeMultiplier(player) : 1);
-    return { id, position: player.position, value, weekProjection: player.projectedPoints ?? 0 };
+    return { id, position: player.position, positions: player.fantasyPositions, value, weekProjection: player.projectedPoints ?? 0 };
   };
 
   const renderSide = (side: Side) => {

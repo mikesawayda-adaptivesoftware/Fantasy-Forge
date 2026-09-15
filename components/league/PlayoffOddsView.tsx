@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
+import { SleeperRoster } from '@/types';
 import { LeagueData } from '@/lib/hooks/useLeagueData';
 import { useAsync } from '@/lib/hooks/useAsync';
 import { getLeagueMatchups } from '@/lib/sleeper';
@@ -9,6 +10,14 @@ import { simulatePlayoffOdds, sortOdds, toScheduledWeek } from '@/lib/playoff-od
 import LoadingState from '@/components/ui/LoadingState';
 import ErrorState from '@/components/ui/ErrorState';
 import TeamCell from './TeamCell';
+
+/** Only claim certainty when no games remain; simulations can miss long shots */
+function formatOdds(pct: number, final: boolean): string {
+  if (final) return pct >= 100 ? 'In' : pct <= 0 ? 'Out' : `${pct.toFixed(1)}%`;
+  if (pct >= 100) return '>99.9%';
+  if (pct <= 0) return '<0.1%';
+  return `${pct.toFixed(1)}%`;
+}
 
 function pctClass(pct: number): string {
   if (pct >= 90) return 'text-turf';
@@ -38,17 +47,23 @@ export default function PlayoffOddsView({ league }: { league: LeagueData }) {
     return { done, future };
   });
 
+  // The dashboard refreshes rosters every 2 minutes; only re-simulate when standings change
+  const standingsJson = JSON.stringify(
+    league.rosters.map(r => ({ roster_id: r.roster_id, owner_id: r.owner_id, settings: r.settings }))
+  );
+  const rosters = useMemo(() => JSON.parse(standingsJson) as SleeperRoster[], [standingsJson]);
+
   const rows = useMemo(() => {
-    if (!matchups.data || league.rosters.length === 0) return null;
+    if (!matchups.data || rosters.length === 0) return null;
     const odds = simulatePlayoffOdds({
-      rosters: league.rosters,
+      rosters,
       completed: matchups.data.done,
       remaining: matchups.data.future,
       playoffTeams,
       medianGame: info?.settings.league_average_match === 1,
     });
-    return sortOdds(odds, league.rosters);
-  }, [matchups.data, league.rosters, playoffTeams, info]);
+    return sortOdds(odds, rosters);
+  }, [matchups.data, rosters, playoffTeams, info]);
 
   if (matchups.error) return <ErrorState message={matchups.error.message} onRetry={matchups.reload} />;
   if (!rows) return <LoadingState message="Simulating the rest of the season..." />;
@@ -101,7 +116,7 @@ export default function PlayoffOddsView({ league }: { league: LeagueData }) {
                         <div className="h-full bg-gradient-to-r from-turf to-turf-glow" style={{ width: `${row.playoffPct}%` }} />
                       </div>
                       <span className={`stat-number w-16 text-right ${pctClass(row.playoffPct)}`}>
-                        {row.clinched ? 'Clinched' : row.eliminated ? 'Out' : `${row.playoffPct.toFixed(1)}%`}
+                        {formatOdds(row.playoffPct, remainingWeeks.length === 0)}
                       </span>
                     </div>
                   </td>
