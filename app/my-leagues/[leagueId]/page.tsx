@@ -17,6 +17,7 @@ import StandingsView from '@/components/league/StandingsView';
 import PowerRankingsView from '@/components/league/PowerRankingsView';
 import PlayoffOddsView from '@/components/league/PlayoffOddsView';
 import TransactionsView from '@/components/league/TransactionsView';
+import { TabList, TabPanel } from '@/components/ui/Tabs';
 
 const TABS = [
   { key: 'matchup', label: 'This Week', icon: '⚔️' },
@@ -83,30 +84,23 @@ function LeagueDashboard({ leagueId }: { leagueId: string }) {
         </div>
       )}
 
-      <div className="flex gap-2 border-b border-field-border pb-2 overflow-x-auto" role="tablist">
-        {TABS.map(tab => (
-          <button
-            key={tab.key}
-            role="tab"
-            aria-selected={activeTab === tab.key}
-            onClick={() => setParams({ tab: tab.key === 'matchup' ? null : tab.key })}
-            className={`px-4 py-2 rounded-lg font-medium transition-all flex items-center gap-2 whitespace-nowrap ${
-              activeTab === tab.key ? 'bg-turf text-black' : 'text-text-secondary hover:text-white hover:bg-field-card'
-            }`}
-          >
-            <span aria-hidden>{tab.icon}</span>
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      <TabList
+        tabs={TABS}
+        active={activeTab}
+        onChange={key => setParams({ tab: key === 'matchup' ? null : key })}
+        idPrefix="league"
+        label="League views"
+      />
 
-      {activeTab === 'matchup' && <MatchupView league={league} data={data} />}
-      {activeTab === 'lineup' && <LineupView league={league} data={data} />}
-      {activeTab === 'roster' && <RosterView league={league} data={data} />}
-      {activeTab === 'standings' && <StandingsView league={league} />}
-      {activeTab === 'power' && <PowerRankingsView league={league} />}
-      {activeTab === 'playoffs' && <PlayoffOddsView league={league} />}
-      {activeTab === 'transactions' && <TransactionsView league={league} data={data} />}
+      <TabPanel idPrefix="league" activeKey={activeTab}>
+        {activeTab === 'matchup' && <MatchupView league={league} data={data} />}
+        {activeTab === 'lineup' && <LineupView league={league} data={data} />}
+        {activeTab === 'roster' && <RosterView league={league} data={data} />}
+        {activeTab === 'standings' && <StandingsView league={league} />}
+        {activeTab === 'power' && <PowerRankingsView league={league} />}
+        {activeTab === 'playoffs' && <PlayoffOddsView league={league} />}
+        {activeTab === 'transactions' && <TransactionsView league={league} data={data} />}
+      </TabPanel>
     </div>
   );
 }

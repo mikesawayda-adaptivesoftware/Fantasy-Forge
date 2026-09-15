@@ -40,16 +40,17 @@ export function formatSigned(value: number, digits = 1): string {
 /** Background class for an injury designation badge */
 export function getInjuryStatusColor(status: string | null | undefined): string {
   if (!status) return '';
+  // Tailwind 700-shades keep white text above WCAG AA contrast
   const colors: Record<string, string> = {
-    Out: 'bg-red-500 text-white',
-    Doubtful: 'bg-red-400 text-white',
-    Questionable: 'bg-yellow-500 text-black',
+    Out: 'bg-red-700 text-white',
+    Doubtful: 'bg-red-700 text-white',
+    Questionable: 'bg-yellow-400 text-black',
     Probable: 'bg-green-400 text-black',
-    IR: 'bg-red-600 text-white',
-    PUP: 'bg-orange-500 text-white',
-    Sus: 'bg-purple-500 text-white',
+    IR: 'bg-red-800 text-white',
+    PUP: 'bg-orange-700 text-white',
+    Sus: 'bg-purple-700 text-white',
   };
-  return colors[status] || 'bg-gray-500 text-white';
+  return colors[status] || 'bg-gray-600 text-white';
 }
 
 export const MATCHUP_GRADE_CLASSES: Record<MatchupGrade, string> = {

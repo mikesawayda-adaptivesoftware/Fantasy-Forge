@@ -12,14 +12,14 @@ export default function StandingsView({ league }: { league: LeagueData }) {
 
   return (
     <div className="bg-field-card/50 border border-field-border rounded-xl overflow-x-auto">
-      <table className="w-full min-w-[520px]">
+      <table className="w-full">
         <thead>
           <tr className="bg-field-elevated/50 border-b border-field-border text-text-muted text-xs uppercase tracking-wide">
             <th className="text-left px-4 py-3">Rank</th>
             <th className="text-left px-4 py-3">Team</th>
             <th className="text-center px-4 py-3">Record</th>
             <th className="text-right px-4 py-3">PF</th>
-            <th className="text-right px-4 py-3">PA</th>
+            <th className="text-right px-4 py-3 hidden sm:table-cell">PA</th>
           </tr>
         </thead>
         <tbody>
@@ -44,7 +44,7 @@ export default function StandingsView({ league }: { league: LeagueData }) {
                 <td className="px-4 py-3 text-right stat-number text-text-secondary">
                   {rosterPoints(roster.settings.fpts, roster.settings.fpts_decimal).toFixed(2)}
                 </td>
-                <td className="px-4 py-3 text-right stat-number text-text-muted">
+                <td className="hidden sm:table-cell px-4 py-3 text-right stat-number text-text-muted">
                   {rosterPoints(roster.settings.fpts_against, roster.settings.fpts_against_decimal).toFixed(2)}
                 </td>
               </tr>

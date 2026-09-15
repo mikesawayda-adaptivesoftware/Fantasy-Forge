@@ -11,6 +11,9 @@ interface MatchupBadgeProps {
   showWeek?: boolean;
 }
 
+// Shape-based cue so grades don't rely on color alone
+const GRADE_SYMBOLS: Record<string, string> = { great: '▲▲', good: '▲', neutral: '●', tough: '▼', brutal: '▼▼' };
+
 /** Opponent + defense-vs-position grade, e.g. "@ KC · Tough" */
 export default function MatchupBadge({ matchup, position, compact = false, showWeek = false }: MatchupBadgeProps) {
   if (!matchup) return null;
@@ -36,7 +39,13 @@ export default function MatchupBadge({ matchup, position, compact = false, showW
     >
       {showWeek && <span className="opacity-70">W{matchup.week}</span>}
       <span className="font-medium">{formatOpponent(matchup.game)}</span>
-      {!compact && matchup.grade && <span>· {MATCHUP_GRADE_LABELS[matchup.grade]}</span>}
+      {matchup.grade && (
+        <span aria-hidden className="text-[10px] leading-none">
+          {GRADE_SYMBOLS[matchup.grade]}
+        </span>
+      )}
+      {matchup.grade && !compact && <span>· {MATCHUP_GRADE_LABELS[matchup.grade]}</span>}
+      {matchup.grade && compact && <span className="sr-only">, {MATCHUP_GRADE_LABELS[matchup.grade]} matchup</span>}
     </span>
   );
 }

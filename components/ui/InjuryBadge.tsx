@@ -32,7 +32,7 @@ export default function InjuryBadge({ player }: { player: InjuryFields }) {
       className={`px-1.5 py-0.5 text-xs rounded font-medium whitespace-nowrap ${getInjuryStatusColor(player.injuryStatus)}`}
     >
       {player.injuryStatus}
-      {player.injuryBodyPart && <span className="hidden sm:inline font-normal opacity-90"> · {player.injuryBodyPart}</span>}
+      {player.injuryBodyPart && <span className="hidden sm:inline font-normal"> · {player.injuryBodyPart}</span>}
     </span>
   );
 }

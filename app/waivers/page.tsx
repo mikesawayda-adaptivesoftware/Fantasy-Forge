@@ -300,16 +300,16 @@ function WaiversContent() {
             />
 
             <div className="bg-field-card/50 border border-field-border rounded-xl overflow-x-auto">
-              <table className="w-full text-sm min-w-[640px]">
+              <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-field-elevated/50 border-b border-field-border text-text-muted text-xs uppercase tracking-wide">
                     <th className="text-left px-4 py-3">Player</th>
                     <th className="text-left px-4 py-3">Week {week}</th>
                     <th className="text-right px-4 py-3">Proj</th>
-                    <th className="text-right px-4 py-3">Recent</th>
-                    <th className="text-right px-4 py-3">Value</th>
-                    <th className="text-left px-4 py-3">Next 4</th>
-                    <th className="text-right px-4 py-3">Trend</th>
+                    <th className="text-right px-4 py-3 hidden sm:table-cell">Recent</th>
+                    <th className="text-right px-4 py-3 hidden md:table-cell">Value</th>
+                    <th className="text-left px-4 py-3 hidden md:table-cell">Next 4</th>
+                    <th className="text-right px-4 py-3 hidden sm:table-cell">Trend</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -338,9 +338,9 @@ function WaiversContent() {
                           <MatchupBadge matchup={data.getMatchup(player)} position={player.position} compact />
                         </td>
                         <td className="px-4 py-2 text-right stat-number text-gold">{formatPoints(fa.weekProjection)}</td>
-                        <td className="px-4 py-2 text-right stat-number text-cyan">{fa.games ? formatPoints(fa.recent) : '—'}</td>
-                        <td className="px-4 py-2 text-right stat-number text-text-secondary">{formatPoints(fa.value)}</td>
-                        <td className="px-4 py-2">
+                        <td className="px-4 py-2 text-right stat-number text-cyan hidden sm:table-cell">{fa.games ? formatPoints(fa.recent) : '—'}</td>
+                        <td className="px-4 py-2 text-right stat-number text-text-secondary hidden md:table-cell">{formatPoints(fa.value)}</td>
+                        <td className="px-4 py-2 hidden md:table-cell">
                           {sos ? (
                             <span className={`px-2 py-0.5 rounded border text-xs ${MATCHUP_GRADE_CLASSES[sos.grade]}`} title={`${formatMultiplier(sos.multiplier)} vs average`}>
                               {MATCHUP_GRADE_LABELS[sos.grade]}
@@ -349,7 +349,7 @@ function WaiversContent() {
                             <span className="text-text-muted">—</span>
                           )}
                         </td>
-                        <td className="px-4 py-2 text-right stat-number text-text-muted">{trend ? `+${trend.toLocaleString()}` : ''}</td>
+                        <td className="px-4 py-2 text-right stat-number text-text-muted hidden sm:table-cell">{trend ? `+${trend.toLocaleString()}` : ''}</td>
                       </tr>
                     );
                   })}
