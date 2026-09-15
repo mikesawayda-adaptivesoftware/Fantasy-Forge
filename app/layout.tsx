@@ -1,7 +1,8 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Inter, JetBrains_Mono } from 'next/font/google';
 import Link from 'next/link';
 import SiteNav from '@/components/layout/SiteNav';
+import ServiceWorkerRegister from '@/components/layout/ServiceWorkerRegister';
 import './globals.css';
 
 const inter = Inter({
@@ -17,6 +18,13 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: 'FantasyForge - NFL Fantasy Analysis',
   description: 'League-aware fantasy football tools: matchup ratings, lineup optimizer, waiver and trade analysis powered by Sleeper data.',
+  applicationName: 'FantasyForge',
+  appleWebApp: { capable: true, title: 'FantasyForge', statusBarStyle: 'black-translucent' },
+  icons: { icon: '/icons/icon-192.png', apple: '/icons/icon-192.png' },
+};
+
+export const viewport: Viewport = {
+  themeColor: '#0a0a0f',
 };
 
 export default function RootLayout({
@@ -27,6 +35,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${inter.variable} ${jetbrainsMono.variable} antialiased`}>
+        <ServiceWorkerRegister />
         <div className="min-h-screen bg-field-dark bg-field">
           {/* Decorative gradient orbs */}
           <div className="fixed top-0 left-1/4 w-96 h-96 bg-turf/5 rounded-full blur-3xl pointer-events-none" />

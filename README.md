@@ -13,27 +13,35 @@ FantasyForge is an NFL fantasy football analysis app for Sleeper league managers
 
 ## 🌟 Key Features
 
+### 🗂️ My Teams (every league at once)
+- Starters who won't play, questionable starters, empty slots and lineup upgrades across all of your Sleeper teams – each scored with its own league settings.
+- Projected result of every matchup and the players you roster in multiple leagues.
+
 ### 🏆 League Dashboard (Sleeper)
-- **This Week:** live and projected scores for your matchup, starters labeled by slot (FLEX, SUPER_FLEX…), and per-game status.
-- **Lineup Optimizer:** finds the highest-projected legal lineup for your league's exact roster slots, skipping byes and injured players and respecting locked games.
-- **Power Rankings:** all-play record, luck (actual vs. expected wins), points per game, lineup efficiency and recent form.
+- **This Week:** live scores with game clock, projected finals, and starters labeled by slot (FLEX, SUPER_FLEX, IDP…).
+- **Lineup Optimizer:** the highest-projected legal lineup for your league's exact slots (including IDP), skipping byes and inactive players and locking players at kickoff.
+- **Playoff Odds:** 5,000-run Monte Carlo of the remaining schedule – playoff, bye and #1 seed chances, median-game leagues supported.
+- **Power Rankings:** all-play record, luck, points per game, lineup efficiency and recent form.
+- **Transactions:** trades, waiver claims (with FAAB bids) and free-agent moves, with a trending-pickup filter.
 - **Standings & Roster:** correct tiebreakers, bench, IR and taxi squads.
-- **League scoring everywhere:** every projection and stat is scored with your league's `scoring_settings`.
 
 ### 📋 Waiver Wire
-- Available players in your league with projections, recent form and upcoming schedule strength.
-- **Trending pickups:** the most-added players across Sleeper in the last 24 hours that are still available to you.
-- **Smart add/drop suggestions:** measures how much each free agent improves your *optimal* lineup; starters are never suggested as drops.
+- Available players with projections, recent form and upcoming schedule strength; IDP players in IDP leagues.
+- **Trending pickups** still available in your league and **add/drop suggestions** measured by improvement to your optimal lineup.
 
 ### 🛡️ Matchup Ratings
-- Defense-vs-position ratings for all 32 teams (points allowed to QB/RB/WR/TE/K/DEF), blended with last season early in the year.
-- Weekly matchup grades and rest-of-season strength of schedule on player pages, lists and recommendations.
+- Defense-vs-position ratings for all 32 teams **in your scoring system**, built from every player's weekly line and opponent, blended with last season early on.
+- Weekly grades (with shape cues) and rest-of-season strength of schedule everywhere players appear.
 
-### 🏈 Players, Compare, Start/Sit & Trade
-- **Player database:** projections, game logs with real opponents, positional rank and volatility.
-- **Head-to-head & Start/Sit:** projection, season and recent production (weighted by sample size), consistency, injuries, byes and matchup. Shareable URLs.
-- **Trade analyzer:** values players over replacement level so a 3-for-1 isn't judged by raw totals.
-- **Scoring formats:** PPR, Half PPR or Standard outside of leagues.
+### 🔄 Trades
+- Values players over replacement level – in league mode, replacement levels come from your league's size and roster slots.
+- **Dynasty leagues:** age-adjusted values and draft picks (traded picks applied, valued by round, year and projected slot).
+- **Trade finder:** searches every roster for 1-for-1 and 2-for-1 deals that improve your lineup without hurting the other team.
+
+### 🏈 Players, Compare & Start/Sit
+- **Player pages:** live injury details, weekly actual-vs-projected chart, game logs with the right team and opponent (even after trades), upcoming matchups.
+- **Compare up to 4 players** and **Start/Sit** using projection, sample-size-weighted production, consistency, injuries, byes and matchup. Shareable URLs.
+- **Installable app** (PWA) with an offline fallback.
 
 ---
 
@@ -72,9 +80,10 @@ Open [http://localhost:3000](http://localhost:3000).
 | `npm run build` / `npm start` | Production build / server |
 | `npm run lint` | ESLint |
 | `npm run typecheck` | TypeScript type-check |
-| `npm test` | Unit tests (scoring, matchups, lineup optimizer, power rankings, waivers, trades) |
+| `npm test` | Unit tests (Vitest) |
+| `npm run test:e2e` | Browser + accessibility tests (Playwright + axe; run `npm run build` first, `E2E_CHANNEL=chrome` to use local Chrome) |
 
-CI runs lint, type-check, tests and builds on pull requests; merges to `main` publish a new Docker image (see [Deployment](#-deployment)).
+CI runs lint, type-check, unit tests, browser tests, a Docker build and a secret scan on pull requests; merges to `main` publish a new Docker image (see [Deployment](#-deployment)).
 
 ---
 
@@ -138,40 +147,42 @@ Browser ──▶ /api/nfl/*  (Next.js route handlers, in-memory cache)  ──�
 
 ```text
 app/
-├── api/nfl/          # Cached, trimmed Sleeper data (players, weekly, schedule, defense, trending)
-├── my-leagues/       # League list & dashboard (matchup, lineup, roster, standings, power rankings)
+├── api/nfl/          # Cached, trimmed Sleeper data (players+injuries, weekly, live schedule, defense, trending)
+├── my-teams/         # Every team's lineup issues + player exposure
+├── my-leagues/       # League list & dashboard (matchup, lineup, roster, standings, power, playoffs, transactions)
 ├── waivers/          # Waiver wire, trending pickups, add/drop suggestions
 ├── players/          # Player database & detail pages
 ├── compare/ start-sit/ trade/
 components/
 ├── league/           # League dashboard views
-├── layout/           # Navigation & scoring selector
-└── ui/               # Shared UI (PlayerCard, PlayerPicker, MatchupBadge, ...)
+├── trade/            # Trade finder
+├── layout/           # Navigation, scoring selector, service worker registration
+└── ui/               # Shared UI (PlayerCard, PlayerPicker, MatchupBadge, Tabs, charts, ...)
 lib/
 ├── server/           # Server-only Sleeper client + cache
-├── hooks/            # useFantasyData, useLeagueData, URL/localStorage hooks
+├── hooks/            # useFantasyData, useLeagueData, useUserLeagues, useAsync, URL/localStorage hooks
 ├── points.ts         # Scoring presets & calculator
-├── season.ts         # Game logs, averages, ranks
+├── season.ts         # Game logs, averages, ranks, blended value
 ├── matchups.ts       # Defense-vs-position ratings & grades
 ├── lineup.ts         # Lineup optimizer (Hungarian assignment)
+├── league.ts         # Lineup analysis, game state, league shape
 ├── power-rankings.ts # All-play, luck, standings order
+├── playoff-odds.ts   # Monte Carlo playoff odds
 ├── waivers.ts        # Add/drop suggestions
+├── trade-finder.ts   # Trade search
+├── dynasty.ts        # Age curves & draft picks
+├── transactions.ts   # Transaction normalization
 └── scoring.ts        # Compare, start/sit and trade analysis
 tests/                # Vitest unit tests
+tests/e2e/            # Playwright tests with mocked Sleeper data
+docs/ENHANCEMENTS.md  # Backlog for future work
 ```
 
 ---
 
 ## 🗺️ Roadmap
 
-- [x] Waiver wire with trending pickups and add/drop suggestions
-- [x] League-aware scoring, lineup optimizer and power rankings
-- [x] Defense-vs-position matchup ratings
-- [ ] Playoff odds simulation
-- [ ] Trade finder across league rosters
-- [ ] Multi-league dashboard (exposure, injured starters everywhere)
-- [ ] Injury details and league transaction feed
-- [ ] Dynasty mode (draft picks, age curves)
+See [`docs/ENHANCEMENTS.md`](docs/ENHANCEMENTS.md). Next up: real-account verification on game day, push notifications, division-aware playoff odds and a playoff bracket view.
 
 ---
 

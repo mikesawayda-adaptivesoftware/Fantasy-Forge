@@ -6,6 +6,7 @@ import {
   PlayerWithStats,
   StartSitRecommendation,
   TradeAnalysis,
+  TradePickValue,
   TradePlayerValue,
   Winner,
 } from '@/types';
@@ -127,6 +128,87 @@ export function comparePlayersHeadToHead(
 }
 
 // ==========================================
+// MULTI-PLAYER COMPARISON
+// ==========================================
+
+export interface MultiComparisonCategory {
+  category: string;
+  values: number[];
+  /** Index of the best player in this category, or null on a tie */
+  bestIndex: number | null;
+  higherIsBetter: boolean;
+  weight: number;
+  format: 'points' | 'percent' | 'multiplier';
+}
+
+export interface MultiComparisonResult {
+  players: PlayerWithStats[];
+  /** Weighted share of each category (sums to 100) */
+  scores: number[];
+  /** Player indexes from best to worst */
+  ranking: number[];
+  /** 50–100; how clearly #1 beats #2 */
+  confidence: number;
+  tie: boolean;
+  categories: MultiComparisonCategory[];
+}
+
+/**
+ * Rank 2–4 players with the same categories and weights as head-to-head.
+ * Each category awards shares of 100 points: proportional to value, or to
+ * (total − value) when lower is better. With two players this reduces exactly
+ * to comparePlayersHeadToHead.
+ */
+export function comparePlayersMulti(players: PlayerWithStats[], contexts: (PlayerContext | undefined)[] = []): MultiComparisonResult {
+  const n = players.length;
+  const categories: MultiComparisonCategory[] = [];
+  const add = (category: string, values: number[], higherIsBetter: boolean, weight: number, format: MultiComparisonCategory['format'], epsilon: number) => {
+    const best = higherIsBetter ? Math.max(...values) : Math.min(...values);
+    const bestIndexes = values.map((v, i) => (Math.abs(v - best) <= epsilon ? i : -1)).filter(i => i >= 0);
+    categories.push({ category, values, bestIndex: bestIndexes.length === 1 ? bestIndexes[0] : null, higherIsBetter, weight, format });
+  };
+
+  add('Projected Points', players.map((p, i) => effectiveProjection(p, contexts[i])), true, 0.35, 'points', 0.05);
+
+  const historyFactor = Math.min(1, Math.min(...players.map(p => p.gamesPlayed ?? 0)) / 4);
+  if (historyFactor > 0) {
+    add('Season Average', players.map(p => p.avgPoints ?? 0), true, 0.25 * historyFactor, 'points', 0.05);
+    add('Recent Form (3 games)', players.map(p => p.recentAvgPoints ?? 0), true, 0.25 * historyFactor, 'points', 0.05);
+  }
+
+  const vols = players.map(volatility);
+  if (vols.every(v => v !== null)) add('Volatility', vols as number[], false, 0.05 * historyFactor, 'percent', 0.01);
+
+  const multipliers = contexts.map(c => c?.matchup?.entry?.multiplier);
+  if (multipliers.length === n && multipliers.every(m => m !== undefined)) add('Matchup', multipliers as number[], true, 0.1, 'multiplier', 0.02);
+
+  const totalWeight = categories.reduce((sum, c) => sum + c.weight, 0) || 1;
+  const scores = new Array(n).fill(0);
+  for (const cat of categories) {
+    const weight = cat.weight / totalWeight;
+    const values = cat.values.map(v => Math.max(0, v));
+    const total = values.reduce((a, b) => a + b, 0);
+    for (let i = 0; i < n; i++) {
+      const share = total <= 0 ? 1 / n : cat.higherIsBetter ? values[i] / total : (total - values[i]) / ((n - 1) * total);
+      scores[i] += share * weight * 100;
+    }
+  }
+
+  const ranking = scores.map((_, i) => i).sort((a, b) => scores[b] - scores[a]);
+  // Rescale so the gap means the same thing regardless of player count
+  const gap = n > 1 ? (scores[ranking[0]] - scores[ranking[1]]) * (n / 2) : 100;
+  const tie = gap < 1;
+  return {
+    players,
+    scores: scores.map(s => Math.round(s * 10) / 10),
+    ranking,
+    confidence: tie ? 50 : Math.min(100, Math.round(50 + gap * 1.25)),
+    tie,
+    categories,
+  };
+}
+
+// ==========================================
 // START / SIT
 // ==========================================
 
@@ -230,11 +312,12 @@ export const DEFAULT_STARTERS_PER_POSITION: Record<string, number> = {
  */
 export function computeReplacementLevels(
   players: PlayerWithStats[],
-  startersPerPosition: Record<string, number> = DEFAULT_STARTERS_PER_POSITION
+  startersPerPosition: Record<string, number> = DEFAULT_STARTERS_PER_POSITION,
+  valueFn: (player: PlayerWithStats) => number = playerTradeValue
 ): Record<string, number> {
   const byPosition: Record<string, number[]> = {};
   for (const player of players) {
-    (byPosition[player.position] ??= []).push(playerTradeValue(player));
+    (byPosition[player.position] ??= []).push(valueFn(player));
   }
   const levels: Record<string, number> = {};
   for (const position in byPosition) {
@@ -245,13 +328,22 @@ export function computeReplacementLevels(
   return levels;
 }
 
+export interface TradeOptions {
+  /** Per-player value (e.g. dynasty age-adjusted). Defaults to playerTradeValue */
+  valueFn?: (player: PlayerWithStats) => number;
+  givePicks?: TradePickValue[];
+  receivePicks?: TradePickValue[];
+}
+
 export function analyzeTrade(
   givePlayers: PlayerWithStats[],
   receivePlayers: PlayerWithStats[],
-  replacementLevels: Record<string, number>
+  replacementLevels: Record<string, number>,
+  options: TradeOptions = {}
 ): TradeAnalysis {
+  const { valueFn = playerTradeValue, givePicks = [], receivePicks = [] } = options;
   const valueOf = (player: PlayerWithStats): TradePlayerValue => {
-    const rawValue = playerTradeValue(player);
+    const rawValue = round1(valueFn(player));
     const replacementValue = replacementLevels[player.position] ?? 0;
     return {
       player,
@@ -263,8 +355,9 @@ export function analyzeTrade(
 
   const give = givePlayers.map(valueOf);
   const receive = receivePlayers.map(valueOf);
-  const giveValue = round1(give.reduce((sum, p) => sum + p.valueOverReplacement, 0));
-  const receiveValue = round1(receive.reduce((sum, p) => sum + p.valueOverReplacement, 0));
+  const pickTotal = (picks: TradePickValue[]) => picks.reduce((sum, p) => sum + p.value, 0);
+  const giveValue = round1(give.reduce((sum, p) => sum + p.valueOverReplacement, 0) + pickTotal(givePicks));
+  const receiveValue = round1(receive.reduce((sum, p) => sum + p.valueOverReplacement, 0) + pickTotal(receivePicks));
   const valueDifference = round1(Math.abs(giveValue - receiveValue));
   const fairThreshold = Math.max(1.5, Math.max(giveValue, receiveValue) * 0.1);
 
@@ -289,7 +382,7 @@ export function analyzeTrade(
     rosterSpotNote = `You open ${-spotDiff} roster spot${spotDiff < -1 ? 's' : ''}, which you can fill from waivers.`;
   }
 
-  return { givePlayers: give, receivePlayers: receive, giveValue, receiveValue, winner, valueDifference, recommendation, rosterSpotNote };
+  return { givePlayers: give, receivePlayers: receive, givePicks, receivePicks, giveValue, receiveValue, winner, valueDifference, recommendation, rosterSpotNote };
 }
 
 export function isListedPlayer(player: Player): boolean {

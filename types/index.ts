@@ -7,6 +7,8 @@ export type Position = 'QB' | 'RB' | 'WR' | 'TE' | 'K' | 'DEF' | 'DL' | 'LB' | '
 
 export const FANTASY_POSITIONS: Position[] = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
 
+export const IDP_POSITIONS: Position[] = ['DL', 'LB', 'DB'];
+
 /**
  * A single stat line from Sleeper (weekly stats or projections).
  * Keys are Sleeper stat keys (pass_yd, rec, fum_lost, pts_allow_0, ...), which
@@ -16,6 +18,12 @@ export type StatLine = { [stat: string]: number | undefined };
 
 /** Weekly stats or projections keyed by player ID */
 export type StatsByPlayer = Record<string, StatLine>;
+
+/** Weekly stats plus each player's [team, opponent] for that week */
+export interface WeeklyStatsPayload {
+  stats: StatsByPlayer;
+  teams: Record<string, [team: string, opponent: string]>;
+}
 
 // Sleeper API Player type (raw)
 export interface SleeperPlayer {
@@ -35,6 +43,7 @@ export interface SleeperPlayer {
   injury_body_part?: string | null;
   injury_notes?: string | null;
   search_rank?: number | null;
+  fantasy_positions?: string[] | null;
 }
 
 // Simplified player for UI (served by /api/nfl/players)
@@ -44,6 +53,8 @@ export interface Player {
   firstName: string;
   lastName: string;
   position: Position;
+  /** Every fantasy position the player is eligible at, when more than `position` */
+  fantasyPositions?: Position[];
   team: string; // 'FA' when unsigned
   age?: number;
   experience?: number;
@@ -51,12 +62,18 @@ export interface Player {
   number?: number;
   status?: string;
   injuryStatus?: string | null;
+  injuryBodyPart?: string;
+  injuryNotes?: string;
+  /** Epoch ms of Sleeper's latest news/injury update */
+  injuryUpdatedAt?: number;
   searchRank?: number;
 }
 
 // Weekly game log entry
 export interface GameLogEntry {
   week: number;
+  /** Team the player was on that week */
+  team?: string;
   opponent?: string;
   home?: boolean;
   stats: StatLine;
@@ -119,6 +136,12 @@ export interface TeamGame {
   home: boolean;
   date: string;
   status: GameStatus;
+  /** ISO kickoff time (current/next week only) */
+  kickoff?: string;
+  teamScore?: number;
+  opponentScore?: number;
+  /** e.g. "Q3 08:21" while in progress */
+  clock?: string;
 }
 
 /** team -> week -> game (weeks without an entry are byes) */
@@ -165,10 +188,18 @@ export interface TradePlayerValue {
   valueOverReplacement: number;
 }
 
+export interface TradePickValue {
+  id: string;
+  label: string;
+  value: number;
+}
+
 // Trade analysis
 export interface TradeAnalysis {
   givePlayers: TradePlayerValue[];
   receivePlayers: TradePlayerValue[];
+  givePicks: TradePickValue[];
+  receivePicks: TradePickValue[];
   giveValue: number;
   receiveValue: number;
   winner: 'give' | 'receive' | 'fair';

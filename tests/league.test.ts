@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getBenchIds, playerGameState, projectedFinal, resolvePlayer } from '@/lib/league';
+import { analyzeRosterLineup, getBenchIds, leagueHasIdp, playerGameState, projectedFinal, resolvePlayer, startersPerPositionForLeague } from '@/lib/league';
 import { canFillSlot, optimizeLineup } from '@/lib/lineup';
 import { normalizeSchedule } from '@/lib/nfl';
 import { SleeperRoster } from '@/types';
@@ -38,17 +38,17 @@ describe('resolvePlayer', () => {
     for (const slot of ['QB', 'WR', 'FLEX', 'SUPER_FLEX']) expect(canFillSlot(slot, unknown.position)).toBe(false);
   });
 
-  it('keeps unknown or IDP players out of optimized offensive slots', () => {
+  it('keeps unknown players out of every slot', () => {
     const result = optimizeLineup({
-      slots: ['QB', 'WR', 'DL', 'LB'],
-      currentStarters: ['qb', '0', 'dl1', 'lb1'],
+      slots: ['QB', 'WR', 'DL'],
+      currentStarters: ['qb', '0', '0'],
       candidates: [
         { id: 'qb', position: 'QB', projected: 20 },
-        { id: 'lb2', position: 'LB', projected: 8 },
-        { id: 'mystery', position: resolvePlayer('mystery', new Map()).position, projected: 0 },
+        { id: 'mystery', position: resolvePlayer('mystery', new Map()).position, projected: 10 },
       ],
     });
     expect(result.optimal[1].playerId).toBeNull();
+    expect(result.optimal[2].playerId).toBeNull();
     expect(result.moves).toHaveLength(0);
   });
 
@@ -77,5 +77,57 @@ describe('projectedFinal / getBenchIds', () => {
   it('excludes starters, IR and taxi from the bench', () => {
     const roster = { players: ['a', 'b', 'c', 'd'], reserve: ['c'], taxi: ['d'] } as unknown as SleeperRoster;
     expect(getBenchIds(roster, ['a'])).toEqual(['b']);
+  });
+});
+
+describe('playerGameState with kickoff times', () => {
+  const live = normalizeSchedule([{ week: 2, home: 'KC', away: 'BUF', date: '2026-09-20', status: 'pre_game', game_id: '1' }]);
+  live.KC[2] = { ...live.KC[2], kickoff: '2026-09-21T00:20:00+00:00' };
+
+  it('stays unlocked before kickoff even after the UTC date rolls over', () => {
+    expect(playerGameState(live, 'KC', 2, 0, new Date('2026-09-21T00:10:00Z'))).toBe('pre_game');
+  });
+
+  it('locks at kickoff', () => {
+    expect(playerGameState(live, 'KC', 2, 0, new Date('2026-09-21T00:20:00Z'))).toBe('in_game');
+  });
+});
+
+describe('league shape helpers', () => {
+  it('detects IDP leagues', () => {
+    expect(leagueHasIdp(['QB', 'RB', 'IDP_FLEX', 'BN'])).toBe(true);
+    expect(leagueHasIdp(['QB', 'RB', 'FLEX', 'BN'])).toBe(false);
+  });
+
+  it('counts league-wide starters per position including flex shares', () => {
+    const starters = startersPerPositionForLeague(['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX', 'SUPER_FLEX', 'K', 'DEF', 'BN', 'IR'], 10);
+    expect(starters.QB).toBe(18); // 10 QB + 8 superflex
+    expect(starters.RB).toBe(26); // 20 + 4.5 flex + 1 superflex
+    expect(starters.TE).toBe(11);
+    expect(starters.K).toBe(10);
+  });
+});
+
+describe('analyzeRosterLineup', () => {
+  it('flags inactive and questionable starters, empty slots and optimizer gains', () => {
+    const players = new Map([
+      ['qb', { id: 'qb', name: 'QB', firstName: '', lastName: '', position: 'QB' as const, team: 'KC', injuryStatus: 'Questionable' }],
+      ['rb1', { id: 'rb1', name: 'RB1', firstName: '', lastName: '', position: 'RB' as const, team: 'MIA', injuryStatus: 'Out' }],
+      ['rb2', { id: 'rb2', name: 'RB2', firstName: '', lastName: '', position: 'RB' as const, team: 'MIA' }],
+    ]);
+    const roster = { roster_id: 1, owner_id: 'u', league_id: 'L', players: ['qb', 'rb1', 'rb2'], starters: ['qb', 'rb1', '0'], reserve: null, taxi: null, settings: { wins: 0, losses: 0, ties: 0, fpts: 0 } } as SleeperRoster;
+    const result = analyzeRosterLineup({
+      rosterPositions: ['QB', 'RB', 'FLEX', 'BN'],
+      roster,
+      matchup: null,
+      playersById: players,
+      schedule: null,
+      week: 3,
+      projectionFor: id => ({ qb: 20, rb1: 15, rb2: 9 })[id] ?? 0,
+    });
+    expect(result.inactiveStarters).toEqual([{ id: 'rb1', reason: 'Listed as Out' }]);
+    expect(result.questionableStarters).toEqual([{ id: 'qb', status: 'Questionable' }]);
+    expect(result.emptySlots).toBe(1);
+    expect(result.optimization.moves.map(m => m.add.id)).toEqual(['rb2']);
   });
 });

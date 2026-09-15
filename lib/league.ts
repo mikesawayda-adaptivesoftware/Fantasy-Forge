@@ -1,5 +1,7 @@
 import { Player, Position, SleeperMatchup, SleeperRoster, TeamSchedule } from '@/types';
-import { getTeamGame, isTeamAbbreviation } from './nfl';
+import { getStartingSlots, LineupCandidate, LineupOptimization, optimizeLineup } from './lineup';
+import { isUnavailable } from './scoring';
+import { getTeamGame, isOnBye, isTeamAbbreviation } from './nfl';
 
 /** Position given to IDs missing from the player database (never fills a slot) */
 export const UNKNOWN_POSITION = 'UNKNOWN' as Position;
@@ -26,9 +28,9 @@ export function isKnownPlayer(id: string, playersById: Map<string, Player>): boo
 export type PlayerGameState = 'pre_game' | 'in_game' | 'complete' | 'bye';
 
 /**
- * Game state for a player this week. The schedule's status can lag behind real
- * kickoffs, so any recorded points or a game date in the past also count as
- * "started".
+ * Game state for a player this week. Uses live status and the exact kickoff
+ * time when available; otherwise any recorded points or a game date in the
+ * past count as "started".
  */
 export function playerGameState(
   schedule: TeamSchedule | null,
@@ -42,6 +44,10 @@ export function playerGameState(
   if (game.status === 'complete') return 'complete';
   if (game.status === 'in_game') return 'in_game';
   if (actualPoints) return 'in_game';
+  if (game.kickoff) {
+    // Exact kickoff time (current/next week): Sleeper locks players at kickoff
+    return now.getTime() >= new Date(game.kickoff).getTime() ? 'in_game' : 'pre_game';
+  }
   if (game.date) {
     // Game dates are calendar days (US time); treat anything before today as started
     const today = now.toISOString().slice(0, 10);
@@ -86,4 +92,107 @@ export function getBenchIds(roster: SleeperRoster, starterIds: (string | null)[]
 /** Starters for the current week: the matchup lineup if present, else the roster's */
 export function getCurrentStarters(roster: SleeperRoster, matchup: SleeperMatchup | null | undefined): string[] {
   return (matchup?.starters ?? roster.starters ?? []).map(id => id ?? '0');
+}
+
+// ==========================================
+// LEAGUE SHAPE
+// ==========================================
+
+const IDP_SLOTS = new Set(['DL', 'LB', 'DB', 'IDP_FLEX']);
+
+export function leagueHasIdp(rosterPositions: string[] | null | undefined): boolean {
+  return (rosterPositions ?? []).some(slot => IDP_SLOTS.has(slot));
+}
+
+export function isDynastyLeague(league: { settings: { type?: number } } | null | undefined): boolean {
+  return league?.settings.type === 2;
+}
+
+/** How flex slots are typically filled across a league */
+const FLEX_SHARES: Record<string, Record<string, number>> = {
+  FLEX: { RB: 0.45, WR: 0.45, TE: 0.1 },
+  WRRB_FLEX: { RB: 0.5, WR: 0.5 },
+  REC_FLEX: { WR: 0.8, TE: 0.2 },
+  SUPER_FLEX: { QB: 0.8, RB: 0.1, WR: 0.1 },
+  IDP_FLEX: { DL: 0.3, LB: 0.4, DB: 0.3 },
+};
+
+/**
+ * League-wide number of starters at each position (e.g. a 10-team superflex
+ * league starts ~18 QBs). Drives replacement levels for trade values.
+ */
+export function startersPerPositionForLeague(rosterPositions: string[], totalRosters: number): Record<string, number> {
+  const perTeam: Record<string, number> = {};
+  for (const slot of rosterPositions) {
+    if (slot === 'BN' || slot === 'IR' || slot === 'TAXI') continue;
+    const shares = FLEX_SHARES[slot] ?? { [slot]: 1 };
+    for (const position in shares) perTeam[position] = (perTeam[position] ?? 0) + shares[position];
+  }
+  const result: Record<string, number> = {};
+  for (const position in perTeam) result[position] = Math.max(1, Math.round(perTeam[position] * totalRosters));
+  return result;
+}
+
+// ==========================================
+// LINEUP ANALYSIS
+// ==========================================
+
+export interface RosterLineupAnalysis {
+  slots: string[];
+  starters: string[];
+  candidates: LineupCandidate[];
+  optimization: LineupOptimization;
+  /** Current starters who won't play (bye, Out, IR...) */
+  inactiveStarters: { id: string; reason: string }[];
+  /** Current starters with a game-time decision */
+  questionableStarters: { id: string; status: string }[];
+  emptySlots: number;
+}
+
+/**
+ * Everything needed to judge a roster's lineup this week: optimal lineup,
+ * starters who won't play, questionable starters and empty slots.
+ */
+export function analyzeRosterLineup(params: {
+  rosterPositions: string[];
+  roster: SleeperRoster;
+  matchup: SleeperMatchup | null | undefined;
+  playersById: Map<string, Player>;
+  schedule: TeamSchedule | null;
+  week: number;
+  projectionFor: (playerId: string) => number;
+}): RosterLineupAnalysis {
+  const { rosterPositions, roster, matchup, playersById, schedule, week, projectionFor } = params;
+  const slots = getStartingSlots(rosterPositions);
+  const starters = getCurrentStarters(roster, matchup);
+  const ids = [...starters.filter(id => id && id !== '0'), ...getBenchIds(roster, starters)];
+  const candidates: LineupCandidate[] = ids.map(id => {
+    const player = resolvePlayer(id, playersById);
+    const bye = isOnBye(schedule, player.team, week);
+    const state = playerGameState(schedule, player.team, week, matchup?.players_points?.[id]);
+    return {
+      id,
+      position: player.position,
+      positions: player.fantasyPositions,
+      projected: projectionFor(id),
+      locked: state === 'in_game' || state === 'complete',
+      unavailableReason: bye ? 'Bye week' : isUnavailable(player.injuryStatus) ? `Listed as ${player.injuryStatus}` : undefined,
+    };
+  });
+  const byId = new Map(candidates.map(c => [c.id, c]));
+  const starterIds = starters.filter(id => id && id !== '0');
+
+  return {
+    slots,
+    starters,
+    candidates,
+    optimization: optimizeLineup({ slots, currentStarters: starters, candidates }),
+    inactiveStarters: starterIds
+      .map(id => ({ id, reason: byId.get(id)?.unavailableReason ?? '' }))
+      .filter(s => s.reason),
+    questionableStarters: starterIds
+      .map(id => ({ id, status: resolvePlayer(id, playersById).injuryStatus ?? '' }))
+      .filter(s => s.status === 'Questionable' || s.status === 'Doubtful'),
+    emptySlots: slots.filter((_, i) => !starters[i] || starters[i] === '0').length,
+  };
 }

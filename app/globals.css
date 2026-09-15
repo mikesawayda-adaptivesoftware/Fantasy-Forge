@@ -20,7 +20,7 @@
   /* Text colors */
   --color-text-primary: #f0f0f5;
   --color-text-secondary: #9ca3af;
-  --color-text-muted: #6b7280;
+  --color-text-muted: #8a93a3;
   
   /* Fonts */
   --font-sans: var(--font-inter), system-ui, sans-serif;
@@ -58,6 +58,13 @@
 
 *::-webkit-scrollbar-thumb:hover {
   background: var(--color-turf-glow);
+}
+
+/* Visible keyboard focus everywhere */
+:focus-visible {
+  outline: 2px solid var(--color-turf-glow);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 body {
@@ -175,12 +182,12 @@ body {
 }
 
 /* Position badges */
-.badge-qb { background: #ef4444; color: white; }
-.badge-rb { background: #10b981; color: white; }
-.badge-wr { background: #3b82f6; color: white; }
+.badge-qb { background: #dc2626; color: white; }
+.badge-rb { background: #047857; color: white; }
+.badge-wr { background: #2563eb; color: white; }
 .badge-te { background: #f59e0b; color: black; }
-.badge-k { background: #a855f7; color: white; }
-.badge-def { background: #6b7280; color: white; }
+.badge-k { background: #7e22ce; color: white; }
+.badge-def { background: #4b5563; color: white; }
 
 /* Animations */
 @keyframes fadeIn {

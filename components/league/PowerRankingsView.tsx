@@ -59,18 +59,18 @@ export default function PowerRankingsView({ league }: { league: LeagueData }) {
       </div>
 
       <div className="bg-field-card/50 border border-field-border rounded-xl overflow-x-auto">
-        <table className="w-full min-w-[760px] text-sm">
+        <table className="w-full text-sm">
           <thead>
             <tr className="bg-field-elevated/50 border-b border-field-border text-text-muted text-xs uppercase tracking-wide">
               <th className="text-left px-3 py-3">Rank</th>
               <th className="text-left px-3 py-3">Team</th>
               <th className="text-left px-3 py-3 w-40">Power</th>
               <th className="text-center px-3 py-3">Record</th>
-              <th className="text-center px-3 py-3">All-Play</th>
+              <th className="text-center px-3 py-3 hidden sm:table-cell">All-Play</th>
               <th className="text-right px-3 py-3">Luck</th>
               <th className="text-right px-3 py-3">PPG</th>
-              <th className="text-right px-3 py-3" title="Points scored ÷ best possible lineup">Efficiency</th>
-              <th className="text-center px-3 py-3">Last 3</th>
+              <th className="text-right px-3 py-3 hidden sm:table-cell" title="Points scored ÷ best possible lineup">Efficiency</th>
+              <th className="text-center px-3 py-3 hidden sm:table-cell">Last 3</th>
             </tr>
           </thead>
           <tbody>
@@ -100,7 +100,7 @@ export default function PowerRankingsView({ league }: { league: LeagueData }) {
                     </div>
                   </td>
                   <td className="px-3 py-3 text-center stat-number text-white">{formatRecord(row.wins, row.losses, row.ties)}</td>
-                  <td className="px-3 py-3 text-center stat-number text-text-secondary">
+                  <td className="hidden sm:table-cell px-3 py-3 text-center stat-number text-text-secondary">
                     {formatRecord(row.allPlayWins, row.allPlayLosses, row.allPlayTies)}
                   </td>
                   <td className={`px-3 py-3 text-right stat-number ${row.luckWins > 0.5 ? 'text-gold' : row.luckWins < -0.5 ? 'text-cyan' : 'text-text-muted'}`}>
@@ -110,7 +110,7 @@ export default function PowerRankingsView({ league }: { league: LeagueData }) {
                   <td className="px-3 py-3 text-right stat-number text-text-secondary">
                     {row.efficiency !== null ? `${Math.round(row.efficiency * 100)}%` : '—'}
                   </td>
-                  <td className="px-3 py-3 text-center stat-number text-text-muted">{Math.round(row.recentAllPlayPct * 100)}%</td>
+                  <td className="hidden sm:table-cell px-3 py-3 text-center stat-number text-text-muted">{Math.round(row.recentAllPlayPct * 100)}%</td>
                 </tr>
               );
             })}

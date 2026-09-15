@@ -9,5 +9,6 @@ interface PositionBadgeProps {
 export default function PositionBadge({ position, variant = 'tint', size = 'sm' }: PositionBadgeProps) {
   const color = variant === 'solid' ? getPositionBadgeClass(position) : getPositionTintClass(position);
   const sizing = size === 'md' ? 'px-3 py-1 text-sm rounded-lg' : 'px-2 py-0.5 text-xs rounded';
-  return <span className={`font-bold ${sizing} ${color}`}>{position}</span>;
+  const label = position === 'UNKNOWN' ? '?' : position;
+  return <span className={`font-bold ${sizing} ${color}`} title={position === 'UNKNOWN' ? 'Player not in the database' : undefined}>{label}</span>;
 }

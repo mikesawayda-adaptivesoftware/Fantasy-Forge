@@ -7,6 +7,7 @@ import { useFantasyData } from '@/lib/hooks/useFantasyData';
 import { useLeagueData } from '@/lib/hooks/useLeagueData';
 import { useQueryParams } from '@/lib/hooks/useQueryParam';
 import { getUserAvatarUrl } from '@/lib/nfl';
+import { leagueHasIdp } from '@/lib/league';
 import LoadingState from '@/components/ui/LoadingState';
 import ErrorState from '@/components/ui/ErrorState';
 import MatchupView from '@/components/league/MatchupView';
@@ -14,6 +15,9 @@ import LineupView from '@/components/league/LineupView';
 import RosterView from '@/components/league/RosterView';
 import StandingsView from '@/components/league/StandingsView';
 import PowerRankingsView from '@/components/league/PowerRankingsView';
+import PlayoffOddsView from '@/components/league/PlayoffOddsView';
+import TransactionsView from '@/components/league/TransactionsView';
+import { TabList, TabPanel } from '@/components/ui/Tabs';
 
 const TABS = [
   { key: 'matchup', label: 'This Week', icon: '⚔️' },
@@ -21,6 +25,8 @@ const TABS = [
   { key: 'roster', label: 'My Roster', icon: '📋' },
   { key: 'standings', label: 'Standings', icon: '🏆' },
   { key: 'power', label: 'Power Rankings', icon: '📈' },
+  { key: 'playoffs', label: 'Playoff Odds', icon: '🎲' },
+  { key: 'transactions', label: 'Transactions', icon: '📜' },
 ] as const;
 
 type TabKey = (typeof TABS)[number]['key'];
@@ -28,7 +34,12 @@ type TabKey = (typeof TABS)[number]['key'];
 function LeagueDashboard({ leagueId }: { leagueId: string }) {
   // Refresh every 2 minutes so live scores and lineup locks stay current on game days
   const league = useLeagueData(leagueId, { refreshMs: 120_000 });
-  const data = useFantasyData({ scoring: league.league?.scoring_settings, refreshMs: 120_000 });
+  const data = useFantasyData({
+    scoring: league.league?.scoring_settings,
+    includeIdp: leagueHasIdp(league.league?.roster_positions),
+    refreshMs: 120_000,
+    weekMode: 'current',
+  });
   const [params, setParams] = useQueryParams(['tab'] as const);
   const activeTab: TabKey = TABS.some(t => t.key === params.tab) ? (params.tab as TabKey) : 'matchup';
 
@@ -74,28 +85,23 @@ function LeagueDashboard({ leagueId }: { leagueId: string }) {
         </div>
       )}
 
-      <div className="flex gap-2 border-b border-field-border pb-2 overflow-x-auto" role="tablist">
-        {TABS.map(tab => (
-          <button
-            key={tab.key}
-            role="tab"
-            aria-selected={activeTab === tab.key}
-            onClick={() => setParams({ tab: tab.key === 'matchup' ? null : tab.key })}
-            className={`px-4 py-2 rounded-lg font-medium transition-all flex items-center gap-2 whitespace-nowrap ${
-              activeTab === tab.key ? 'bg-turf text-black' : 'text-text-secondary hover:text-white hover:bg-field-card'
-            }`}
-          >
-            <span aria-hidden>{tab.icon}</span>
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      <TabList
+        tabs={TABS}
+        active={activeTab}
+        onChange={key => setParams({ tab: key === 'matchup' ? null : key })}
+        idPrefix="league"
+        label="League views"
+      />
 
-      {activeTab === 'matchup' && <MatchupView league={league} data={data} />}
-      {activeTab === 'lineup' && <LineupView league={league} data={data} />}
-      {activeTab === 'roster' && <RosterView league={league} data={data} />}
-      {activeTab === 'standings' && <StandingsView league={league} />}
-      {activeTab === 'power' && <PowerRankingsView league={league} />}
+      <TabPanel idPrefix="league" activeKey={activeTab}>
+        {activeTab === 'matchup' && <MatchupView league={league} data={data} />}
+        {activeTab === 'lineup' && <LineupView league={league} data={data} />}
+        {activeTab === 'roster' && <RosterView league={league} data={data} />}
+        {activeTab === 'standings' && <StandingsView league={league} />}
+        {activeTab === 'power' && <PowerRankingsView league={league} />}
+        {activeTab === 'playoffs' && <PlayoffOddsView league={league} data={data} />}
+        {activeTab === 'transactions' && <TransactionsView league={league} data={data} />}
+      </TabPanel>
     </div>
   );
 }

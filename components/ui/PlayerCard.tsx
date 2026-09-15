@@ -40,7 +40,7 @@ export default function PlayerCard({ player, showStats = false, onClick, selecte
             <p className={`font-semibold text-white truncate group-hover:text-turf transition-colors ${compact ? 'text-sm' : ''}`}>
               {player.name}
             </p>
-            <InjuryBadge status={player.injuryStatus} />
+            <InjuryBadge player={player} />
           </div>
 
           <div className={`flex flex-wrap items-center gap-2 ${compact ? 'text-xs' : 'text-sm'}`}>

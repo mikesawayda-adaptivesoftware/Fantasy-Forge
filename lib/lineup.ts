@@ -12,6 +12,10 @@ export const SLOT_ELIGIBILITY: Record<string, Position[]> = {
   WRRB_FLEX: ['WR', 'RB'],
   REC_FLEX: ['WR', 'TE'],
   SUPER_FLEX: ['QB', 'RB', 'WR', 'TE'],
+  DL: ['DL'],
+  LB: ['LB'],
+  DB: ['DB'],
+  IDP_FLEX: ['DL', 'LB', 'DB'],
 };
 
 export const SLOT_LABELS: Record<string, string> = {
@@ -44,6 +48,8 @@ export function canFillSlot(slot: string, position: string): boolean {
 export interface LineupCandidate {
   id: string;
   position: string;
+  /** All eligible positions when a player qualifies at more than one (e.g. LB/DL) */
+  positions?: string[];
   projected: number;
   /** Game already started – player can't be moved in or out */
   locked?: boolean;
@@ -76,6 +82,10 @@ export interface LineupOptimization {
   moves: LineupMove[];
   /** Current starters who drop out of the optimal lineup */
   benched: LineupCandidate[];
+}
+
+export function candidateFits(slot: string, candidate: Pick<LineupCandidate, 'position' | 'positions'>): boolean {
+  return (candidate.positions?.length ? candidate.positions : [candidate.position]).some(pos => canFillSlot(slot, pos));
 }
 
 function effectiveProjection(candidate: LineupCandidate): number {
@@ -198,7 +208,7 @@ export function optimizeLineup(params: {
         const candidate = pool[c];
         const slot = openSlots[r].slot;
         row.push(
-          canFillSlot(slot, candidate.position)
+          candidateFits(slot, candidate)
             ? effectiveProjection(candidate) + 1e-9 + (currentStarterSet.has(candidate.id) ? 1e-6 : 0)
             : -Infinity
         );
@@ -211,7 +221,7 @@ export function optimizeLineup(params: {
   const optimal = current.map(a => ({ ...a }));
   openSlots.forEach((slotAssignment, r) => {
     const c = assignment[r];
-    const candidate = c >= 0 && c < pool.length && canFillSlot(slotAssignment.slot, pool[c].position) ? pool[c] : null;
+    const candidate = c >= 0 && c < pool.length && candidateFits(slotAssignment.slot, pool[c]) ? pool[c] : null;
     optimal[slotAssignment.slotIndex] = {
       ...slotAssignment,
       playerId: candidate?.id ?? null,
@@ -258,7 +268,7 @@ function alignWithCurrent(current: SlotAssignment[], optimal: SlotAssignment[], 
     const displacedId = optimal[i].playerId;
     const displaced = displacedId ? byId.get(displacedId) : undefined;
     // The wanted player already fit slot i; make sure the displaced player fits slot j
-    if (displaced && !canFillSlot(optimal[j].slot, displaced.position)) continue;
+    if (displaced && !candidateFits(optimal[j].slot, displaced)) continue;
     const a = optimal[i];
     const b = optimal[j];
     optimal[i] = { ...a, playerId: b.playerId, projected: b.projected };

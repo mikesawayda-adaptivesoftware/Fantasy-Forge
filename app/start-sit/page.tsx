@@ -45,7 +45,7 @@ function StartSitContent() {
         consistency, injuries, byes and this week&apos;s defensive matchup.
       </p>
       <p className="text-text-muted text-sm">
-        Week {data.ctx?.week} · {data.scoringLabel} scoring
+        Week {data.week} · {data.scoringLabel} scoring
       </p>
 
       <div className="relative grid md:grid-cols-2 gap-6">

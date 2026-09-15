@@ -1,4 +1,4 @@
-import { getSchedule, isLiveSeason, isSupportedSeason } from '@/lib/server/sleeper';
+import { getLiveSchedule, isLiveSeason, isSupportedSeason } from '@/lib/server/sleeper';
 import { badRequest, errorResponse, isValidSeason, jsonResponse } from '@/lib/server/http';
 
 export const dynamic = 'force-dynamic';
@@ -9,7 +9,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ seas
   try {
     if (!(await isSupportedSeason(season))) return badRequest('Season not available');
     const live = await isLiveSeason(season);
-    return jsonResponse(await getSchedule(season), live ? 60 : 60 * 60, request);
+    return jsonResponse(await getLiveSchedule(season), live ? 30 : 60 * 60, request);
   } catch (error) {
     return errorResponse(error, `schedule ${season}`);
   }

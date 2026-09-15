@@ -7,6 +7,7 @@ import ScoringSelector from './ScoringSelector';
 export const NAV_ITEMS = [
   { href: '/', label: 'Dashboard', icon: '🏠' },
   { href: '/my-leagues', label: 'My Leagues', icon: '🏆' },
+  { href: '/my-teams', label: 'My Teams', icon: '🗂️' },
   { href: '/waivers', label: 'Waivers', icon: '📋' },
   { href: '/players', label: 'Players', icon: '🏈' },
   { href: '/compare', label: 'Compare', icon: '⚔️' },

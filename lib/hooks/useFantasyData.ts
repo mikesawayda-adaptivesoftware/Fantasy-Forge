@@ -3,16 +3,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { NflState, Player, PlayerWithStats, StatsByPlayer, TeamSchedule } from '@/types';
 import { api } from '@/lib/api';
-import { resolveSeasonContext, SeasonContext } from '@/lib/nfl';
+import { REGULAR_SEASON_WEEKS, resolveSeasonContext, SeasonContext } from '@/lib/nfl';
 import { calcPoints, describeScoring, SCORING_PRESETS, ScoringSettings } from '@/lib/points';
 import { buildPlayerSeasons, computePositionRanks, WeekStats, withStats } from '@/lib/season';
-import { DefenseVsPositionResponse, getMatchupInfo, getUpcomingMatchups, MatchupInfo } from '@/lib/matchups';
+import { computeDefenseVsPositionForScoring, DefenseVsPositionResponse, getMatchupInfo, getUpcomingMatchups, MatchupInfo } from '@/lib/matchups';
 import { isListedPlayer } from '@/lib/scoring';
 import { useScoringFormat } from './useScoringFormat';
 
 interface RawFantasyData {
   state: NflState;
   ctx: SeasonContext;
+  projectionWeek: number;
   players: Player[];
   schedule: TeamSchedule | null;
   statsSchedule: TeamSchedule | null;
@@ -28,39 +29,82 @@ export interface FantasyDataOptions {
   includeSeason?: boolean;
   /** Load defense-vs-position matchup data (default true) */
   includeDefense?: boolean;
+  /** Also load IDP stats and projections (IDP leagues) */
+  includeIdp?: boolean;
   /** Re-fetch in the background (e.g. for live game days). Cached responses make this cheap. */
   refreshMs?: number;
+  /**
+   * Which week projections and matchups describe. 'current' is Sleeper's week
+   * (lineups, live matchups). 'upcoming' (default) moves on to next week once
+   * every game of the current week has kicked off – what waivers, trades and
+   * start/sit decisions are about.
+   */
+  weekMode?: 'current' | 'upcoming';
 }
 
-async function loadFantasyData(includeSeason: boolean, includeDefense: boolean): Promise<RawFantasyData> {
+interface LoadOptions {
+  includeSeason: boolean;
+  includeDefense: boolean;
+  includeIdp: boolean;
+  weekMode: 'current' | 'upcoming';
+}
+
+/** True once every game of the week has kicked off (or finished) */
+function allGamesStarted(schedule: TeamSchedule | null, week: number, now = Date.now()): boolean {
+  if (!schedule) return false;
+  let games = 0;
+  for (const team in schedule) {
+    const game = schedule[team][week];
+    if (!game) continue;
+    games++;
+    const started = game.status !== 'pre_game' || (!!game.kickoff && now >= new Date(game.kickoff).getTime());
+    if (!started) return false;
+  }
+  return games > 0;
+}
+
+async function loadWeek(season: string, week: number, includeIdp: boolean): Promise<WeekStats | null> {
+  try {
+    const [offense, idp] = await Promise.all([
+      api.stats(season, week),
+      includeIdp ? api.stats(season, week, true).catch(() => null) : Promise.resolve(null),
+    ]);
+    return {
+      week,
+      stats: idp ? { ...offense.stats, ...idp.stats } : offense.stats,
+      teams: idp ? { ...offense.teams, ...idp.teams } : offense.teams,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function loadFantasyData({ includeSeason, includeDefense, includeIdp, weekMode }: LoadOptions): Promise<RawFantasyData> {
   const state = await api.state();
   const ctx = resolveSeasonContext(state);
   const weekNumbers = includeSeason ? Array.from({ length: ctx.statsThroughWeek }, (_, i) => i + 1) : [];
+  const schedule = await api.schedule(ctx.season).catch(() => null);
+  const projectionWeek =
+    weekMode === 'upcoming' && ctx.inSeason && ctx.week < REGULAR_SEASON_WEEKS && allGamesStarted(schedule, ctx.week) ? ctx.week + 1 : ctx.week;
 
-  const [players, schedule, projections, weeks, defense] = await Promise.all([
+  const [players, projections, idpProjections, weeks, defense] = await Promise.all([
     api.players(),
-    api.schedule(ctx.season).catch(() => null),
-    api.projections(ctx.season, ctx.week).catch(() => ({} as StatsByPlayer)),
-    Promise.all(
-      weekNumbers.map(week =>
-        api
-          .stats(ctx.statsSeason, week)
-          .then(stats => ({ week, stats }))
-          .catch(() => null)
-      )
-    ),
+    api.projections(ctx.season, projectionWeek).catch(() => ({} as StatsByPlayer)),
+    includeIdp ? api.projections(ctx.season, projectionWeek, true).catch(() => ({} as StatsByPlayer)) : Promise.resolve({} as StatsByPlayer),
+    Promise.all(weekNumbers.map(week => loadWeek(ctx.statsSeason, week, includeIdp))),
     includeDefense ? api.defense().catch(() => null) : Promise.resolve(null),
   ]);
 
   return {
     state,
     ctx,
+    projectionWeek,
     players,
     schedule,
-    // Game logs only use the schedule (opponents, in-progress games) for the
-    // current season. For a past season, players' current teams may differ.
+    // Game completion uses the current season's schedule; past-season logs use
+    // the per-week team/opponent that comes with the stats instead.
     statsSchedule: ctx.statsSeason === ctx.season ? schedule : null,
-    projections,
+    projections: { ...projections, ...idpProjections },
     weeks: weeks.filter((w): w is WeekStats => w !== null),
     defense,
   };
@@ -72,7 +116,7 @@ async function loadFantasyData(includeSeason: boolean, includeDefense: boolean):
  * the user's preferred format or a league's scoring settings.
  */
 export function useFantasyData(options: FantasyDataOptions = {}) {
-  const { includeSeason = true, includeDefense = true, refreshMs } = options;
+  const { includeSeason = true, includeDefense = true, includeIdp = false, refreshMs, weekMode = 'upcoming' } = options;
   const format = useScoringFormat();
   const scoring = options.scoring ?? SCORING_PRESETS[format];
 
@@ -82,7 +126,7 @@ export function useFantasyData(options: FantasyDataOptions = {}) {
 
   useEffect(() => {
     let cancelled = false;
-    loadFantasyData(includeSeason, includeDefense)
+    loadFantasyData({ includeSeason, includeDefense, includeIdp, weekMode })
       .then(data => {
         if (!cancelled) {
           setRaw(data);
@@ -95,7 +139,7 @@ export function useFantasyData(options: FantasyDataOptions = {}) {
     return () => {
       cancelled = true;
     };
-  }, [includeSeason, includeDefense, attempt]);
+  }, [includeSeason, includeDefense, includeIdp, weekMode, attempt]);
 
   // Background refresh keeps game status, live stats and projections current
   useEffect(() => {
@@ -103,7 +147,7 @@ export function useFantasyData(options: FantasyDataOptions = {}) {
     let cancelled = false;
     const id = setInterval(() => {
       if (document.visibilityState !== 'visible') return;
-      loadFantasyData(includeSeason, includeDefense)
+      loadFantasyData({ includeSeason, includeDefense, includeIdp, weekMode })
         .then(data => !cancelled && setRaw(data))
         .catch(() => undefined); // keep showing the last good data
     }, refreshMs);
@@ -111,7 +155,7 @@ export function useFantasyData(options: FantasyDataOptions = {}) {
       cancelled = true;
       clearInterval(id);
     };
-  }, [refreshMs, includeSeason, includeDefense]);
+  }, [refreshMs, includeSeason, includeDefense, includeIdp, weekMode]);
 
   const retry = useCallback(() => {
     setError(null);
@@ -139,6 +183,25 @@ export function useFantasyData(options: FantasyDataOptions = {}) {
     return map;
   }, [raw, scoring]);
 
+  // Matchup ratings in the active scoring system (falls back to Sleeper's PPR ratings)
+  const dvp = useMemo(() => {
+    if (!raw) return null;
+    const serverTeams = raw.defense?.teams ?? null;
+    const weeksWithTeams = raw.weeks.filter(w => w.teams && Object.keys(w.teams).length > 0);
+    if (weeksWithTeams.length === 0) return serverTeams;
+    const sameSeason = raw.ctx.statsSeason === raw.ctx.season;
+    return (
+      computeDefenseVsPositionForScoring({
+        weeks: weeksWithTeams.map(w => ({ week: w.week, stats: w.stats, teams: w.teams! })),
+        scoring,
+        positionOf: id => playersById.get(id)?.position,
+        schedule: raw.statsSchedule,
+        prior: sameSeason ? raw.defense?.previousTeams ?? null : null,
+        priorGames: raw.defense?.priorGames ?? 3,
+      }) ?? serverTeams
+    );
+  }, [raw, scoring, playersById]);
+
   const positionRanks = useMemo(() => computePositionRanks(raw?.players ?? [], seasons), [raw, seasons]);
 
   const getPlayerWithStats = useCallback(
@@ -156,12 +219,12 @@ export function useFantasyData(options: FantasyDataOptions = {}) {
       return getMatchupInfo({
         position: player.position,
         team: player.team,
-        week: week ?? raw.ctx.week,
+        week: week ?? raw.projectionWeek,
         schedule: raw.schedule,
-        dvp: raw.defense?.teams,
+        dvp,
       });
     },
-    [raw]
+    [raw, dvp]
   );
 
   const getUpcoming = useCallback(
@@ -170,13 +233,13 @@ export function useFantasyData(options: FantasyDataOptions = {}) {
       return getUpcomingMatchups({
         position: player.position,
         team: player.team,
-        fromWeek: fromWeek ?? raw.ctx.week,
+        fromWeek: fromWeek ?? raw.projectionWeek,
         count,
         schedule: raw.schedule,
-        dvp: raw.defense?.teams,
+        dvp,
       });
     },
-    [raw]
+    [raw, dvp]
   );
 
   return {
@@ -186,12 +249,15 @@ export function useFantasyData(options: FantasyDataOptions = {}) {
     ready: !!raw,
     state: raw?.state ?? null,
     ctx: raw?.ctx ?? null,
+    /** Week that projections and default matchups describe */
+    week: raw?.projectionWeek ?? null,
     players: raw?.players ?? [],
     listedPlayers,
     playersById,
     schedule: raw?.schedule ?? null,
     projections: raw?.projections ?? {},
     defense: raw?.defense ?? null,
+    dvp,
     seasons,
     projected,
     positionRanks,

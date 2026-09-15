@@ -15,8 +15,9 @@ import LoadingState from '@/components/ui/LoadingState';
 import ErrorState from '@/components/ui/ErrorState';
 import PlayerAvatar from '@/components/ui/PlayerAvatar';
 import PositionBadge from '@/components/ui/PositionBadge';
-import InjuryBadge from '@/components/ui/InjuryBadge';
+import InjuryBadge, { formatInjuryUpdated } from '@/components/ui/InjuryBadge';
 import MatchupBadge from '@/components/ui/MatchupBadge';
+import WeeklyPointsChart from '@/components/ui/WeeklyPointsChart';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -88,7 +89,7 @@ export default function PlayerDetailPage({ params }: PageProps) {
           <div className="flex flex-wrap items-center gap-3 mb-2">
             <h1 className="text-3xl font-bold text-white">{player.name}</h1>
             <PositionBadge position={player.position} variant="solid" size="md" />
-            <InjuryBadge status={player.injuryStatus} />
+            <InjuryBadge player={player} />
           </div>
 
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-text-secondary">
@@ -99,12 +100,23 @@ export default function PlayerDetailPage({ params }: PageProps) {
             {player.college && <span className="text-text-muted">{player.college}</span>}
             {byeWeek && <span className="text-text-muted">Bye: Week {byeWeek}</span>}
           </div>
+
+          {player.injuryStatus && (
+            <div className="mt-3 text-sm bg-red/10 border border-red/30 rounded-lg px-3 py-2 text-text-secondary">
+              <span className="font-semibold text-red">{player.injuryStatus}</span>
+              {player.injuryBodyPart && <span> – {player.injuryBodyPart}</span>}
+              {player.injuryNotes && <span className="block text-text-muted">{player.injuryNotes}</span>}
+              {formatInjuryUpdated(player.injuryUpdatedAt) && (
+                <span className="block text-xs text-text-muted mt-0.5">{formatInjuryUpdated(player.injuryUpdatedAt)}</span>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-3 gap-3 text-center w-full md:w-auto">
           <div className="bg-field-dark rounded-lg p-3">
             <div className="stat-number text-2xl text-gold">{formatPoints(player.projectedPoints)}</div>
-            <div className="text-xs text-text-muted">Week {ctx.week} Proj</div>
+            <div className="text-xs text-text-muted">Week {data.week} Proj</div>
           </div>
           <div className="bg-field-dark rounded-lg p-3">
             <div className="stat-number text-2xl text-turf">{formatPoints(player.avgPoints)}</div>
@@ -125,10 +137,10 @@ export default function PlayerDetailPage({ params }: PageProps) {
           </h3>
 
           {thisWeek?.bye ? (
-            <p className="text-text-secondary mb-4">On bye in Week {ctx.week}.</p>
+            <p className="text-text-secondary mb-4">On bye in Week {data.week}.</p>
           ) : thisWeek?.game ? (
             <div className={`rounded-lg border p-4 mb-4 ${MATCHUP_GRADE_CLASSES[thisWeek.grade ?? 'neutral']}`}>
-              <div className="text-xs uppercase tracking-wide opacity-80">Week {ctx.week}</div>
+              <div className="text-xs uppercase tracking-wide opacity-80">Week {data.week}</div>
               <div className="text-lg font-semibold">
                 {formatOpponent(thisWeek.game)} {thisWeek.grade && `· ${MATCHUP_GRADE_LABELS[thisWeek.grade]} matchup`}
               </div>
@@ -174,7 +186,7 @@ export default function PlayerDetailPage({ params }: PageProps) {
             <SummaryStat label="Volatility" value={vol === null ? '—' : `${Math.round(vol * 100)}%`} color="text-text-primary" hint="Std. deviation ÷ average (lower is steadier)" />
           </div>
           <div className="grid sm:grid-cols-3 gap-2">
-            <Link href={`/compare?player1=${player.id}`} className="btn-primary text-center text-sm">
+            <Link href={`/compare?players=${player.id}`} className="btn-primary text-center text-sm">
               Compare
             </Link>
             <Link href={`/start-sit?player1=${player.id}`} className="btn-secondary text-center text-sm">
@@ -192,6 +204,21 @@ export default function PlayerDetailPage({ params }: PageProps) {
         <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
           <span aria-hidden>📅</span> Game Log
         </h3>
+
+        {gameLog.length > 0 && (
+          <div className="mb-6">
+            <WeeklyPointsChart
+              gameLog={gameLog}
+              average={player.avgPoints}
+              projections={Object.fromEntries(
+                gameLog.map(g => {
+                  const projStats = weeklyProjections[g.week]?.[player.id];
+                  return [g.week, projStats ? calcPoints(projStats, data.scoring) : undefined];
+                })
+              )}
+            />
+          </div>
+        )}
 
         {gameLog.length > 0 ? (
           <div className="overflow-x-auto">
@@ -221,7 +248,8 @@ export default function PlayerDetailPage({ params }: PageProps) {
                       <tr key={game.week} className="border-b border-field-border/50">
                         <td className="py-3 pr-4 font-medium text-white">Week {game.week}</td>
                         <td className="py-3 pr-4 text-text-secondary">
-                          {game.opponent ? `${game.home ? 'vs' : '@'} ${game.opponent}` : '—'}
+                          {game.opponent ? `${game.home === false ? '@' : 'vs'} ${game.opponent}` : '—'}
+                          {game.team && game.team !== player.team && <span className="text-xs text-text-muted"> (with {game.team})</span>}
                         </td>
                         <td className="py-3 pr-4 text-right">
                           <span className={`stat-number text-lg ${performance === 'great' ? 'text-turf' : performance === 'poor' ? 'text-red' : 'text-white'}`}>

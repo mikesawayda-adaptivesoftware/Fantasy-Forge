@@ -1,4 +1,4 @@
-import { getNflState, getWeekly, isSupportedSeason, WeeklyKind } from '@/lib/server/sleeper';
+import { getNflState, getWeeklyProjections, getWeeklyStats, isSupportedSeason } from '@/lib/server/sleeper';
 import { badRequest, errorResponse, isValidSeason, jsonResponse, parseWeek } from '@/lib/server/http';
 import { resolveSeasonContext } from '@/lib/nfl';
 
@@ -13,15 +13,18 @@ export async function GET(
   if (!isValidSeason(season)) return badRequest('Invalid season');
   const week = parseWeek(weekParam);
   if (week === null) return badRequest('Invalid week');
+  const idpParam = new URL(request.url).searchParams.get('idp');
+  if (idpParam !== null && idpParam !== '1') return badRequest('idp must be 1 when present');
+  const idp = idpParam === '1';
 
   try {
     if (!(await isSupportedSeason(season))) return badRequest('Season not available');
-    const data = await getWeekly(kind as WeeklyKind, season, week);
+    const data = kind === 'stats' ? await getWeeklyStats(season, week, idp) : await getWeeklyProjections(season, week, idp);
     // Completed weeks rarely change; the current week updates constantly
     const ctx = resolveSeasonContext(await getNflState());
     const isPast = Number(season) < Number(ctx.season) || (season === ctx.season && week < ctx.week);
     return jsonResponse(data, isPast ? 6 * 60 * 60 : 60, request);
   } catch (error) {
-    return errorResponse(error, `${kind} ${season} week ${week}`);
+    return errorResponse(error, `${kind} ${season} week ${week}${idp ? ' (idp)' : ''}`);
   }
 }
