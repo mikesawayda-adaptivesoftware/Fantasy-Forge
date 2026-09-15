@@ -69,3 +69,19 @@ describe('tierFromRank', () => {
     expect(tierFromRank(undefined)).toBe(5);
   });
 });
+
+describe('buildPlayerSeasons with weekly teams (traded players)', () => {
+  it('uses the team and opponent from that week instead of the current team', () => {
+    const traded: Player = { id: '9', name: 'Traded', firstName: 'T', lastName: 'R', position: 'RB', team: 'NYJ' };
+    const seasons = buildPlayerSeasons({
+      weeks: [
+        { week: 1, stats: { '9': { gp: 1, rush_yd: 50 } }, teams: { '9': ['DAL', 'PHI'] } },
+        { week: 2, stats: { '9': { gp: 1, rush_yd: 70 } }, teams: { '9': ['NYJ', 'NE'] } },
+      ],
+      scoring: SCORING_PRESETS.ppr,
+      playersById: new Map([['9', traded]]),
+      schedule: null,
+    });
+    expect(seasons.get('9')!.gameLog.map(g => [g.team, g.opponent])).toEqual([['DAL', 'PHI'], ['NYJ', 'NE']]);
+  });
+});

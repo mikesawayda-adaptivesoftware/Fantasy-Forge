@@ -26,9 +26,9 @@ export function isKnownPlayer(id: string, playersById: Map<string, Player>): boo
 export type PlayerGameState = 'pre_game' | 'in_game' | 'complete' | 'bye';
 
 /**
- * Game state for a player this week. The schedule's status can lag behind real
- * kickoffs, so any recorded points or a game date in the past also count as
- * "started".
+ * Game state for a player this week. Uses live status and the exact kickoff
+ * time when available; otherwise any recorded points or a game date in the
+ * past count as "started".
  */
 export function playerGameState(
   schedule: TeamSchedule | null,
@@ -42,6 +42,10 @@ export function playerGameState(
   if (game.status === 'complete') return 'complete';
   if (game.status === 'in_game') return 'in_game';
   if (actualPoints) return 'in_game';
+  if (game.kickoff) {
+    // Exact kickoff time (current/next week): Sleeper locks players at kickoff
+    return now.getTime() >= new Date(game.kickoff).getTime() ? 'in_game' : 'pre_game';
+  }
   if (game.date) {
     // Game dates are calendar days (US time); treat anything before today as started
     const today = now.toISOString().slice(0, 10);

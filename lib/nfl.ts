@@ -154,9 +154,16 @@ export function isOnBye(schedule: TeamSchedule | null | undefined, team: string 
 }
 
 /** Has this team's game for the week kicked off (or finished)? */
-export function hasGameStarted(schedule: TeamSchedule | null | undefined, team: string | null | undefined, week: number): boolean {
+export function hasGameStarted(
+  schedule: TeamSchedule | null | undefined,
+  team: string | null | undefined,
+  week: number,
+  now: Date = new Date()
+): boolean {
   const game = getTeamGame(schedule, team, week);
-  return !!game && game.status !== 'pre_game';
+  if (!game) return false;
+  if (game.status !== 'pre_game') return true;
+  return !!game.kickoff && now.getTime() >= new Date(game.kickoff).getTime();
 }
 
 /**

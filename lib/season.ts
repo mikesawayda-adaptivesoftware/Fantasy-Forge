@@ -5,6 +5,8 @@ import { getTeamGame, isGameComplete } from './nfl';
 export interface WeekStats {
   week: number;
   stats: StatsByPlayer;
+  /** playerId -> [team, opponent] for that week (when known) */
+  teams?: Record<string, [string, string]>;
 }
 
 const RECENT_GAMES = 3;
@@ -56,21 +58,25 @@ export function buildPlayerSeasons(params: {
   const logs = new Map<string, GameLogEntry[]>();
   const orderedWeeks = [...weeks].sort((a, b) => a.week - b.week);
 
-  for (const { week, stats } of orderedWeeks) {
+  for (const { week, stats, teams } of orderedWeeks) {
     for (const playerId in stats) {
       const player = playersById.get(playerId);
       if (!player) continue;
       const line = stats[playerId];
       if (!hasPlayed(line)) continue;
-      if (!isGameComplete(schedule, player.team, week)) continue;
+      // The team a player was on *that week* (traded players), when known
+      const weekTeam = teams?.[playerId]?.[0] ?? player.team;
+      if (!isGameComplete(schedule, weekTeam, week)) continue;
 
-      const game = getTeamGame(schedule, player.team, week);
+      const game = getTeamGame(schedule, weekTeam, week);
+      const opponent = teams?.[playerId]?.[1] ?? game?.opponent;
       const entry: GameLogEntry = {
         week,
         stats: line,
         fantasyPoints: calcPoints(line, scoring),
-        opponent: game?.opponent,
-        home: game?.home,
+        team: weekTeam,
+        opponent,
+        home: game && game.opponent === opponent ? game.home : undefined,
       };
       const log = logs.get(playerId);
       if (log) log.push(entry);

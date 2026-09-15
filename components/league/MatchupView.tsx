@@ -6,7 +6,7 @@ import { FantasyData } from '@/lib/hooks/useFantasyData';
 import { LeagueData } from '@/lib/hooks/useLeagueData';
 import { getStartingSlots, slotLabel } from '@/lib/lineup';
 import { getCurrentStarters, playerGameState, projectedFinal, resolvePlayer } from '@/lib/league';
-import { getUserAvatarUrl } from '@/lib/nfl';
+import { getTeamGame, getUserAvatarUrl } from '@/lib/nfl';
 import { getTeamName } from '@/lib/sleeper';
 import { formatPoints, formatSigned } from '@/lib/utils';
 import RosterPlayerRow from './RosterPlayerRow';
@@ -150,7 +150,7 @@ export default function MatchupView({ league, data }: { league: LeagueData; data
                         <>
                           <div className={`stat-number text-sm ${actual >= projected ? 'text-turf' : 'text-red'}`}>{formatPoints(actual)}</div>
                           <div className="text-text-muted text-xs">
-                            {state === 'in_game' ? 'Live' : 'Final'} · {formatSigned(actual - projected)}
+                            {state === 'in_game' ? getTeamGame(data.schedule, player.team, week)?.clock ?? 'Live' : 'Final'} · {formatSigned(actual - projected)}
                           </div>
                         </>
                       )

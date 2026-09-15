@@ -15,7 +15,7 @@ import LoadingState from '@/components/ui/LoadingState';
 import ErrorState from '@/components/ui/ErrorState';
 import PlayerAvatar from '@/components/ui/PlayerAvatar';
 import PositionBadge from '@/components/ui/PositionBadge';
-import InjuryBadge from '@/components/ui/InjuryBadge';
+import InjuryBadge, { formatInjuryUpdated } from '@/components/ui/InjuryBadge';
 import MatchupBadge from '@/components/ui/MatchupBadge';
 
 interface PageProps {
@@ -88,7 +88,7 @@ export default function PlayerDetailPage({ params }: PageProps) {
           <div className="flex flex-wrap items-center gap-3 mb-2">
             <h1 className="text-3xl font-bold text-white">{player.name}</h1>
             <PositionBadge position={player.position} variant="solid" size="md" />
-            <InjuryBadge status={player.injuryStatus} />
+            <InjuryBadge player={player} />
           </div>
 
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-text-secondary">
@@ -99,6 +99,17 @@ export default function PlayerDetailPage({ params }: PageProps) {
             {player.college && <span className="text-text-muted">{player.college}</span>}
             {byeWeek && <span className="text-text-muted">Bye: Week {byeWeek}</span>}
           </div>
+
+          {player.injuryStatus && (
+            <div className="mt-3 text-sm bg-red/10 border border-red/30 rounded-lg px-3 py-2 text-text-secondary">
+              <span className="font-semibold text-red">{player.injuryStatus}</span>
+              {player.injuryBodyPart && <span> – {player.injuryBodyPart}</span>}
+              {player.injuryNotes && <span className="block text-text-muted">{player.injuryNotes}</span>}
+              {formatInjuryUpdated(player.injuryUpdatedAt) && (
+                <span className="block text-xs text-text-muted mt-0.5">{formatInjuryUpdated(player.injuryUpdatedAt)}</span>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-3 gap-3 text-center w-full md:w-auto">

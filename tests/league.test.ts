@@ -79,3 +79,16 @@ describe('projectedFinal / getBenchIds', () => {
     expect(getBenchIds(roster, ['a'])).toEqual(['b']);
   });
 });
+
+describe('playerGameState with kickoff times', () => {
+  const live = normalizeSchedule([{ week: 2, home: 'KC', away: 'BUF', date: '2026-09-20', status: 'pre_game', game_id: '1' }]);
+  live.KC[2] = { ...live.KC[2], kickoff: '2026-09-21T00:20:00+00:00' };
+
+  it('stays unlocked before kickoff even after the UTC date rolls over', () => {
+    expect(playerGameState(live, 'KC', 2, 0, new Date('2026-09-21T00:10:00Z'))).toBe('pre_game');
+  });
+
+  it('locks at kickoff', () => {
+    expect(playerGameState(live, 'KC', 2, 0, new Date('2026-09-21T00:20:00Z'))).toBe('in_game');
+  });
+});

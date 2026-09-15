@@ -16,11 +16,14 @@ import {
   StatsByPlayer,
   TeamSchedule,
   TrendingPlayer,
+  WeeklyStatsPayload,
 } from '@/types';
 import { normalizeSchedule, REGULAR_SEASON_WEEKS, resolveSeasonContext, TEAM_NAMES } from '@/lib/nfl';
 import { computeDefenseVsPosition, DefenseVsPositionResponse, WeeklyTeamStats } from '@/lib/matchups';
 
 const SLEEPER_API = 'https://api.sleeper.app';
+// Sleeper's (undocumented) web API: richer rows with team/opponent, injuries and live scores
+const SLEEPER_WEB_API = 'https://api.sleeper.com';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -82,8 +85,8 @@ export class SleeperError extends Error {
   }
 }
 
-async function fetchSleeper<T>(path: string): Promise<T> {
-  const response = await fetch(`${SLEEPER_API}${path}`, {
+async function fetchSleeper<T>(path: string, base = SLEEPER_API): Promise<T> {
+  const response = await fetch(`${base}${path}`, {
     cache: 'no-store',
     signal: AbortSignal.timeout(20_000),
   });
@@ -126,16 +129,20 @@ function transformPlayer(sleeper: SleeperPlayer): Player {
   if (sleeper.number) player.number = sleeper.number;
   if (sleeper.status) player.status = sleeper.status;
   if (sleeper.injury_status) player.injuryStatus = sleeper.injury_status;
+  if (sleeper.injury_body_part) player.injuryBodyPart = sleeper.injury_body_part;
+  if (sleeper.injury_notes) player.injuryNotes = sleeper.injury_notes;
   if (sleeper.search_rank) player.searchRank = sleeper.search_rank;
   return player;
 }
 
-const PLAYER_POSITIONS: Position[] = [...FANTASY_POSITIONS, 'DL', 'LB', 'DB'];
+export const IDP_POSITIONS: Position[] = ['DL', 'LB', 'DB'];
+const PLAYER_POSITIONS: Position[] = [...FANTASY_POSITIONS, ...IDP_POSITIONS];
 
 /**
  * Players on a team or still active, including IDP positions so IDP league
  * rosters display correctly. Sleeper asks that the full player dump be
- * requested sparingly, so it is refreshed at most twice a day.
+ * requested sparingly, so it is refreshed at most twice a day; injuries are
+ * refreshed separately (see getInjuries).
  */
 export function getPlayers(): Promise<Player[]> {
   return cached('players', 12 * HOUR, async () => {
@@ -158,20 +165,104 @@ export function getPlayers(): Promise<Player[]> {
   });
 }
 
-const playerIdSets = new WeakMap<Player[], Set<string>>();
+const playerIdSets = new WeakMap<Player[], { fantasy: Set<string>; idp: Set<string> }>();
 
-async function getFantasyPlayerIds(): Promise<Set<string>> {
+async function getPlayerIdSets() {
   const players = await getPlayers();
-  let ids = playerIdSets.get(players);
-  if (!ids) {
-    ids = new Set(players.filter(p => FANTASY_POSITIONS.includes(p.position)).map(p => p.id));
-    playerIdSets.set(players, ids);
+  let sets = playerIdSets.get(players);
+  if (!sets) {
+    sets = {
+      fantasy: new Set(players.filter(p => FANTASY_POSITIONS.includes(p.position)).map(p => p.id)),
+      idp: new Set(players.filter(p => IDP_POSITIONS.includes(p.position)).map(p => p.id)),
+    };
+    playerIdSets.set(players, sets);
   }
-  return ids;
+  return sets;
 }
 
 // ==========================================
-// SCHEDULE
+// INJURIES
+// ==========================================
+
+export interface InjuryInfo {
+  status: string | null;
+  bodyPart: string | null;
+  notes: string | null;
+  updatedAt: number | null;
+}
+
+interface SleeperWeeklyRow {
+  player_id: string;
+  team?: string | null;
+  opponent?: string | null;
+  stats?: Record<string, unknown>;
+  player?: {
+    position?: string;
+    injury_status?: string | null;
+    injury_body_part?: string | null;
+    injury_notes?: string | null;
+    news_updated?: number | null;
+  } | null;
+}
+
+/**
+ * Current injury designations. Sleeper's weekly projection rows embed each
+ * player's live injury fields, so this is far fresher than the twice-daily
+ * player dump without calling that endpoint more often.
+ */
+export function getInjuries(): Promise<Map<string, InjuryInfo>> {
+  return cached('injuries', 20 * MINUTE, async () => {
+    const ctx = resolveSeasonContext(await getNflState());
+    const rows = await fetchSleeper<SleeperWeeklyRow[] | null>(
+      `/projections/nfl/${ctx.season}/${ctx.week}?season_type=regular`,
+      SLEEPER_WEB_API
+    );
+    const injuries = new Map<string, InjuryInfo>();
+    for (const row of rows ?? []) {
+      if (!row.player) continue;
+      injuries.set(row.player_id, {
+        status: row.player.injury_status ?? null,
+        bodyPart: row.player.injury_body_part ?? null,
+        notes: row.player.injury_notes ?? null,
+        updatedAt: row.player.news_updated ?? null,
+      });
+    }
+    return injuries;
+  });
+}
+
+const mergedPlayers = new WeakMap<Player[], { injuries: Map<string, InjuryInfo>; players: Player[] }>();
+
+/** Player list with fresh injury data overlaid (memoized per data refresh) */
+export async function getPlayersWithInjuries(): Promise<Player[]> {
+  const players = await getPlayers();
+  const injuries = await getInjuries().catch(() => null);
+  if (!injuries || injuries.size === 0) return players;
+  const hit = mergedPlayers.get(players);
+  if (hit && hit.injuries === injuries) return hit.players;
+
+  const merged = players.map(player => {
+    const injury = injuries.get(player.id);
+    if (!injury) return player;
+    const next: Player = { ...player };
+    delete next.injuryStatus;
+    delete next.injuryBodyPart;
+    delete next.injuryNotes;
+    delete next.injuryUpdatedAt;
+    if (injury.status) {
+      next.injuryStatus = injury.status;
+      if (injury.bodyPart) next.injuryBodyPart = injury.bodyPart;
+      if (injury.notes) next.injuryNotes = injury.notes;
+      if (injury.updatedAt) next.injuryUpdatedAt = injury.updatedAt;
+    }
+    return next;
+  });
+  mergedPlayers.set(players, { injuries, players: merged });
+  return merged;
+}
+
+// ==========================================
+// SCHEDULE & LIVE SCORES
 // ==========================================
 
 /** Is `season` the season currently being played? */
@@ -196,19 +287,77 @@ export async function isSupportedSeason(season: string): Promise<boolean> {
 }
 
 export async function getSchedule(season: string): Promise<TeamSchedule> {
-  // Game status is the kickoff signal for lineup locks, so keep it fresh in season
-  const ttl = (await isLiveSeason(season)) ? 90_000 : HOUR;
+  const ttl = (await isLiveSeason(season)) ? 10 * MINUTE : HOUR;
   return cached(`schedule:${season}`, ttl, async () => {
     const games = await fetchSleeper<SleeperGame[]>(`/schedule/nfl/regular/${season}`);
     return normalizeSchedule(Array.isArray(games) ? games : []);
   });
 }
 
+interface SleeperScoreGame {
+  status?: string;
+  metadata?: {
+    home_team?: string;
+    away_team?: string;
+    date_time?: string;
+    home_score?: number;
+    away_score?: number;
+    quarter?: string;
+    time_remaining?: string;
+    is_in_progress?: boolean;
+    is_over?: boolean;
+  } | null;
+}
+
+/** Live game status, kickoff time and score for one week (short cache) */
+export function getWeekScores(season: string, week: number): Promise<SleeperScoreGame[]> {
+  return cached(`scores:${season}:${week}`, MINUTE, async () => {
+    const games = await fetchSleeper<SleeperScoreGame[] | null>(`/scores/nfl/regular/${season}/${week}`, SLEEPER_WEB_API);
+    return Array.isArray(games) ? games : [];
+  });
+}
+
+/**
+ * Schedule with kickoff times, live status and scores overlaid for the
+ * current and next week. Kickoff times make lineup locks exact.
+ */
+export async function getLiveSchedule(season: string): Promise<TeamSchedule> {
+  const schedule = await getSchedule(season);
+  if (!(await isLiveSeason(season))) return schedule;
+  const ctx = resolveSeasonContext(await getNflState());
+  const weeks = [ctx.week, ctx.week + 1].filter(w => w <= REGULAR_SEASON_WEEKS);
+  const scoreWeeks = await Promise.all(weeks.map(week => getWeekScores(season, week).catch(() => [])));
+  return applyLiveScores(schedule, weeks.map((week, i) => ({ week, games: scoreWeeks[i] })));
+}
+
+export function applyLiveScores(schedule: TeamSchedule, weeks: { week: number; games: SleeperScoreGame[] }[]): TeamSchedule {
+  const next: TeamSchedule = { ...schedule };
+  for (const { week, games } of weeks) {
+    for (const game of games) {
+      const m = game.metadata;
+      if (!m?.home_team || !m.away_team) continue;
+      const status = m.is_over ? 'complete' : m.is_in_progress ? 'in_game' : game.status ?? 'pre_game';
+      for (const [team, isHome] of [[m.home_team, true], [m.away_team, false]] as const) {
+        const existing = next[team]?.[week];
+        if (!existing) continue;
+        next[team] = { ...next[team] };
+        next[team][week] = {
+          ...existing,
+          status,
+          kickoff: m.date_time ?? existing.kickoff,
+          teamScore: isHome ? m.home_score : m.away_score,
+          opponentScore: isHome ? m.away_score : m.home_score,
+          clock: status === 'in_game' && m.quarter ? `Q${m.quarter} ${m.time_remaining ?? ''}`.trim() : undefined,
+        };
+      }
+    }
+  }
+  return next;
+}
+
 // ==========================================
 // WEEKLY STATS & PROJECTIONS
 // ==========================================
-
-export type WeeklyKind = 'stats' | 'projections';
 
 // Ranking/ADP fields aren't used by scoring and bloat the payload
 const DROPPED_STAT_PREFIXES = ['pos_rank_', 'rank_', 'adp_', 'pos_adp_'];
@@ -223,26 +372,69 @@ async function weeklyTtl(season: string, week: number): Promise<number> {
   }
 }
 
-/** Weekly stats or projections for fantasy-relevant players only */
-export async function getWeekly(kind: WeeklyKind, season: string, week: number): Promise<StatsByPlayer> {
+function trimStatLine(line: Record<string, unknown>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const key in line) {
+    const value = line[key];
+    if (typeof value !== 'number' || DROPPED_STAT_PREFIXES.some(prefix => key.startsWith(prefix))) continue;
+    out[key] = value;
+  }
+  return out;
+}
+
+async function idsFor(idp: boolean): Promise<Set<string>> {
+  const sets = await getPlayerIdSets();
+  return idp ? sets.idp : sets.fantasy;
+}
+
+const POSITION_QUERY = {
+  fantasy: FANTASY_POSITIONS.map(p => `position[]=${p}`).join('&'),
+  idp: IDP_POSITIONS.map(p => `position[]=${p}`).join('&'),
+};
+
+/**
+ * Weekly stats with each player's team and opponent for that week, so game
+ * logs and matchup ratings stay correct for traded players. Falls back to the
+ * documented v1 endpoint (without teams) if Sleeper's web API is unavailable.
+ */
+export async function getWeeklyStats(season: string, week: number, idp = false): Promise<WeeklyStatsPayload> {
   const ttl = await weeklyTtl(season, week);
-  return cached(`${kind}:${season}:${week}`, ttl, async () => {
+  return cached(`stats:${season}:${week}:${idp ? 'idp' : 'off'}`, ttl, async () => {
+    const ids = await idsFor(idp);
+    const payload: WeeklyStatsPayload = { stats: {}, teams: {} };
+    try {
+      const rows = await fetchSleeper<SleeperWeeklyRow[] | null>(
+        `/stats/nfl/${season}/${week}?season_type=regular&${idp ? POSITION_QUERY.idp : POSITION_QUERY.fantasy}`,
+        SLEEPER_WEB_API
+      );
+      for (const row of rows ?? []) {
+        if (!ids.has(row.player_id) || !row.stats) continue;
+        payload.stats[row.player_id] = trimStatLine(row.stats);
+        if (row.team && row.opponent) payload.teams[row.player_id] = [row.team, row.opponent];
+      }
+      return payload;
+    } catch (error) {
+      console.warn(`[sleeper] web stats failed for ${season} week ${week}, using v1`, error);
+      const raw = await fetchSleeper<Record<string, Record<string, unknown>> | null>(`/v1/stats/nfl/regular/${season}/${week}`);
+      for (const playerId in raw ?? {}) {
+        if (ids.has(playerId)) payload.stats[playerId] = trimStatLine(raw![playerId]);
+      }
+      return payload;
+    }
+  });
+}
+
+/** Weekly projections for fantasy-relevant (or IDP) players */
+export async function getWeeklyProjections(season: string, week: number, idp = false): Promise<StatsByPlayer> {
+  const ttl = await weeklyTtl(season, week);
+  return cached(`projections:${season}:${week}:${idp ? 'idp' : 'off'}`, ttl, async () => {
     const [raw, ids] = await Promise.all([
-      fetchSleeper<StatsByPlayer | null>(`/v1/${kind}/nfl/regular/${season}/${week}`),
-      getFantasyPlayerIds(),
+      fetchSleeper<Record<string, Record<string, unknown>> | null>(`/v1/projections/nfl/regular/${season}/${week}`),
+      idsFor(idp),
     ]);
     const trimmed: StatsByPlayer = {};
-    if (!raw) return trimmed;
-    for (const playerId in raw) {
-      if (!ids.has(playerId)) continue;
-      const line = raw[playerId];
-      const out: Record<string, number> = {};
-      for (const key in line) {
-        const value = line[key];
-        if (typeof value !== 'number' || DROPPED_STAT_PREFIXES.some(prefix => key.startsWith(prefix))) continue;
-        out[key] = value;
-      }
-      trimmed[playerId] = out;
+    for (const playerId in raw ?? {}) {
+      if (ids.has(playerId)) trimmed[playerId] = trimStatLine(raw![playerId]);
     }
     return trimmed;
   });
@@ -257,8 +449,8 @@ async function seasonTeamStats(season: string, throughWeek: number): Promise<Wee
   const weeks = Array.from({ length: throughWeek }, (_, i) => i + 1);
   const results = await Promise.all(
     weeks.map(week =>
-      getWeekly('stats', season, week)
-        .then((stats): WeeklyTeamStats => ({ week, stats, schedule }))
+      getWeeklyStats(season, week)
+        .then((payload): WeeklyTeamStats => ({ week, stats: payload.stats, schedule }))
         .catch(() => null)
     )
   );
@@ -277,6 +469,7 @@ export function getDefenseVsPosition(): Promise<DefenseVsPositionResponse> {
     return {
       season: currentSeason,
       priorSeason: previous.length ? priorSeason : null,
+      previousTeams: previous.length ? computeDefenseVsPosition(previous, [], 0) : null,
       priorGames: PRIOR_GAMES,
       teams: computeDefenseVsPosition(current, previous, PRIOR_GAMES),
     };

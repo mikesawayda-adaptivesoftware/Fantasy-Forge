@@ -366,7 +366,7 @@ function WaiversContent() {
                             <div className="min-w-0">
                               <div className="flex items-center gap-2">
                                 <span className="font-medium text-white group-hover:text-turf transition-colors truncate">{player.name}</span>
-                                <InjuryBadge status={player.injuryStatus} />
+                                <InjuryBadge player={player} />
                               </div>
                               <div className="flex items-center gap-2 text-xs text-text-muted">
                                 <PositionBadge position={player.position} />

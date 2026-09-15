@@ -1,4 +1,5 @@
-import { NFL_TEAMS, StatsByPlayer, TeamGame, TeamSchedule } from '@/types';
+import { NFL_TEAMS, StatLine, StatsByPlayer, TeamGame, TeamSchedule } from '@/types';
+import { calcPoints, SCORING_PRESETS, ScoringSettings } from './points';
 import { getTeamGame, getByeWeek, isGameComplete, REGULAR_SEASON_WEEKS } from './nfl';
 
 export const DVP_POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'] as const;
@@ -9,7 +10,7 @@ export function isDvpPosition(position: string): position is DvpPosition {
 }
 
 export interface DefenseVsPositionEntry {
-  /** Fantasy points per game this team allows to the position (PPR) */
+  /** Fantasy points per game this team allows to the position */
   allowedPerGame: number;
   /** Games from the current season included */
   games: number;
@@ -25,7 +26,10 @@ export interface DefenseVsPositionResponse {
   season: string;
   priorSeason: string | null;
   priorGames: number;
+  /** Current-season PPR ratings blended with last season */
   teams: DefenseVsPosition;
+  /** Last season alone (PPR) – prior for scoring-specific ratings */
+  previousTeams: DefenseVsPosition | null;
 }
 
 export interface WeeklyTeamStats {
@@ -98,24 +102,105 @@ export function computeDefenseVsPosition(
       const cur = currentTotals[team][position];
       const prev = previousTotals?.[team][position];
       const priorRate = prev && prev.games > 0 ? prev.points / prev.games : fallbackAvg;
-      const allowed = (cur.points + priorRate * priorGames) / (cur.games + priorGames);
+      const allowed = cur.games + priorGames > 0 ? (cur.points + priorRate * priorGames) / (cur.games + priorGames) : priorRate;
       return { team, allowed, games: cur.games };
     });
 
-    const avg = rates.reduce((sum, r) => sum + r.allowed, 0) / rates.length;
-    const ranked = [...rates].sort((a, b) => b.allowed - a.allowed);
-    ranked.forEach((rate, index) => {
-      result[rate.team] ??= {};
-      result[rate.team][position] = {
-        allowedPerGame: Math.round(rate.allowed * 10) / 10,
-        games: rate.games,
-        rank: index + 1,
-        multiplier: avg > 0 ? Math.round((rate.allowed / avg) * 1000) / 1000 : 1,
-      };
-    });
+    rankRates(result, position, rates);
   }
 
   return result;
+}
+
+function rankRates(result: DefenseVsPosition, position: DvpPosition, rates: { team: string; allowed: number; games: number }[]) {
+  const avg = rates.reduce((sum, r) => sum + r.allowed, 0) / rates.length;
+  const ranked = [...rates].sort((a, b) => b.allowed - a.allowed);
+  ranked.forEach((rate, index) => {
+    result[rate.team] ??= {};
+    result[rate.team][position] = {
+      allowedPerGame: Math.round(rate.allowed * 10) / 10,
+      games: rate.games,
+      rank: index + 1,
+      multiplier: avg > 0 ? Math.round((rate.allowed / avg) * 1000) / 1000 : 1,
+    };
+  });
+}
+
+export interface WeeklyPlayerStats {
+  week: number;
+  stats: StatsByPlayer;
+  /** playerId -> [team, opponent] for that week */
+  teams: Record<string, [string, string]>;
+}
+
+/**
+ * Defense-vs-position ratings in any scoring system, built from individual
+ * player stat lines and their weekly opponent. Last season's PPR ratings
+ * (`prior`) are used as the early-season prior, rescaled to this scoring by
+ * each position's league-wide scoring ratio.
+ */
+export function computeDefenseVsPositionForScoring(params: {
+  weeks: WeeklyPlayerStats[];
+  scoring: ScoringSettings;
+  positionOf: (playerId: string) => string | undefined;
+  schedule?: TeamSchedule | null;
+  prior?: DefenseVsPosition | null;
+  priorGames?: number;
+}): DefenseVsPosition | null {
+  const { weeks, scoring, positionOf, schedule, prior, priorGames = 3 } = params;
+  const points: Record<string, Record<DvpPosition, number>> = {};
+  const pprPoints: Record<DvpPosition, number> = { QB: 0, RB: 0, WR: 0, TE: 0, K: 0, DEF: 0 };
+  const scoredPoints: Record<DvpPosition, number> = { QB: 0, RB: 0, WR: 0, TE: 0, K: 0, DEF: 0 };
+  const gamesByTeam: Record<string, Set<number>> = {};
+  for (const team of NFL_TEAMS) {
+    points[team] = { QB: 0, RB: 0, WR: 0, TE: 0, K: 0, DEF: 0 };
+    gamesByTeam[team] = new Set();
+  }
+
+  let anyRows = false;
+  for (const { week, stats, teams } of weeks) {
+    for (const playerId in teams) {
+      const [team, opponent] = teams[playerId];
+      if (!points[opponent]) continue;
+      if (schedule && !isGameComplete(schedule, team, week)) continue;
+      const line = stats[playerId];
+      const position = positionOf(playerId);
+      if (!line || !position || !isDvpPosition(position) || !hasPlayedLine(line)) continue;
+      const scored = calcPoints(line, scoring);
+      points[opponent][position] += scored;
+      scoredPoints[position] += scored;
+      pprPoints[position] += calcPoints(line, SCORING_PRESETS.ppr);
+      gamesByTeam[opponent].add(week);
+      anyRows = true;
+    }
+  }
+  if (!anyRows && !prior) return null;
+
+  const result: DefenseVsPosition = {};
+  for (const position of DVP_POSITIONS) {
+    // Convert last season's PPR rates into this scoring system
+    const scale = pprPoints[position] > 0 ? scoredPoints[position] / pprPoints[position] : 1;
+    const totalGames = NFL_TEAMS.reduce((sum, team) => sum + gamesByTeam[team].size, 0);
+    const currentAvg = totalGames > 0 ? NFL_TEAMS.reduce((sum, team) => sum + points[team][position], 0) / totalGames : null;
+    const priorRates = NFL_TEAMS.map(team => prior?.[team]?.[position]?.allowedPerGame).filter((v): v is number => typeof v === 'number');
+    const priorAvg = priorRates.length ? (priorRates.reduce((a, b) => a + b, 0) / priorRates.length) * scale : null;
+    const fallbackAvg = currentAvg ?? priorAvg;
+    if (fallbackAvg === null) continue;
+
+    const rates = NFL_TEAMS.map(team => {
+      const games = gamesByTeam[team].size;
+      const priorEntry = prior?.[team]?.[position];
+      const priorRate = priorEntry ? priorEntry.allowedPerGame * scale : fallbackAvg;
+      const allowed = games + priorGames > 0 ? (points[team][position] + priorRate * priorGames) / (games + priorGames) : fallbackAvg;
+      return { team, allowed, games };
+    });
+    rankRates(result, position, rates);
+  }
+  return result;
+}
+
+function hasPlayedLine(line: StatLine): boolean {
+  return typeof line.gp === 'number' ? line.gp > 0 : true;
 }
 
 // ==========================================

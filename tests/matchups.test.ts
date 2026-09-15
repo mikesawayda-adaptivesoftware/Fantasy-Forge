@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { computeDefenseVsPosition, getMatchupInfo, gradeFromMultiplier, strengthOfSchedule } from '@/lib/matchups';
+import { computeDefenseVsPosition, computeDefenseVsPositionForScoring, getMatchupInfo, gradeFromMultiplier, strengthOfSchedule } from '@/lib/matchups';
+import { SCORING_PRESETS } from '@/lib/points';
 import { normalizeSchedule } from '@/lib/nfl';
 import { NFL_TEAMS, StatsByPlayer } from '@/types';
 
@@ -71,5 +72,37 @@ describe('matchup info', () => {
     expect(gradeFromMultiplier(1.2)).toBe('great');
     expect(gradeFromMultiplier(1.0)).toBe('neutral');
     expect(gradeFromMultiplier(0.8)).toBe('brutal');
+  });
+});
+
+describe('computeDefenseVsPositionForScoring', () => {
+  const positions: Record<string, string> = { wr1: 'WR', wr2: 'WR', rb1: 'RB' };
+  const positionOf = (id: string) => positions[id];
+
+  it('credits points to the opponent the player faced that week, in the active scoring', () => {
+    const weeks = [
+      {
+        week: 1,
+        stats: { wr1: { gp: 1, rec: 10, rec_yd: 100 }, wr2: { gp: 1, rec: 2, rec_yd: 20 }, rb1: { gp: 1, rush_yd: 100 } },
+        teams: { wr1: ['KC', 'MIA'], wr2: ['BUF', 'NYJ'], rb1: ['BUF', 'NYJ'] } as Record<string, [string, string]>,
+      },
+    ];
+    const ppr = computeDefenseVsPositionForScoring({ weeks, scoring: SCORING_PRESETS.ppr, positionOf, priorGames: 0 })!;
+    const std = computeDefenseVsPositionForScoring({ weeks, scoring: SCORING_PRESETS.std, positionOf, priorGames: 0 })!;
+    expect(ppr.MIA.WR?.allowedPerGame).toBe(20);
+    expect(std.MIA.WR?.allowedPerGame).toBe(10);
+    expect(ppr.NYJ.RB?.allowedPerGame).toBe(10);
+    expect(ppr.MIA.WR?.rank).toBe(1);
+  });
+
+  it('rescales last season PPR priors into the active scoring', () => {
+    const weeks = [
+      { week: 1, stats: { wr1: { gp: 1, rec: 10, rec_yd: 100 } }, teams: { wr1: ['KC', 'MIA'] } as Record<string, [string, string]> },
+    ];
+    const prior = Object.fromEntries(NFL_TEAMS.map(t => [t, { WR: { allowedPerGame: 40, games: 17, rank: 1, multiplier: 1 } }]));
+    const std = computeDefenseVsPositionForScoring({ weeks, scoring: SCORING_PRESETS.std, positionOf, prior, priorGames: 3 })!;
+    // std/ppr ratio for WRs this season is 10/20 = 0.5, so the prior rate becomes 20
+    expect(std.BUF.WR?.allowedPerGame).toBe(20);
+    expect(std.MIA.WR?.allowedPerGame).toBe(17.5); // (10 + 20*3) / 4
   });
 });

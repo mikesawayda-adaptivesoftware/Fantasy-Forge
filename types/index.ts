@@ -17,6 +17,12 @@ export type StatLine = { [stat: string]: number | undefined };
 /** Weekly stats or projections keyed by player ID */
 export type StatsByPlayer = Record<string, StatLine>;
 
+/** Weekly stats plus each player's [team, opponent] for that week */
+export interface WeeklyStatsPayload {
+  stats: StatsByPlayer;
+  teams: Record<string, [team: string, opponent: string]>;
+}
+
 // Sleeper API Player type (raw)
 export interface SleeperPlayer {
   player_id: string;
@@ -51,12 +57,18 @@ export interface Player {
   number?: number;
   status?: string;
   injuryStatus?: string | null;
+  injuryBodyPart?: string;
+  injuryNotes?: string;
+  /** Epoch ms of Sleeper's latest news/injury update */
+  injuryUpdatedAt?: number;
   searchRank?: number;
 }
 
 // Weekly game log entry
 export interface GameLogEntry {
   week: number;
+  /** Team the player was on that week */
+  team?: string;
   opponent?: string;
   home?: boolean;
   stats: StatLine;
@@ -119,6 +131,12 @@ export interface TeamGame {
   home: boolean;
   date: string;
   status: GameStatus;
+  /** ISO kickoff time (current/next week only) */
+  kickoff?: string;
+  teamScore?: number;
+  opponentScore?: number;
+  /** e.g. "Q3 08:21" while in progress */
+  clock?: string;
 }
 
 /** team -> week -> game (weeks without an entry are byes) */
