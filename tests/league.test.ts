@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getBenchIds, leagueHasIdp, playerGameState, projectedFinal, resolvePlayer, startersPerPositionForLeague } from '@/lib/league';
+import { analyzeRosterLineup, getBenchIds, leagueHasIdp, playerGameState, projectedFinal, resolvePlayer, startersPerPositionForLeague } from '@/lib/league';
 import { canFillSlot, optimizeLineup } from '@/lib/lineup';
 import { normalizeSchedule } from '@/lib/nfl';
 import { SleeperRoster } from '@/types';
@@ -105,5 +105,29 @@ describe('league shape helpers', () => {
     expect(starters.RB).toBe(26); // 20 + 4.5 flex + 1 superflex
     expect(starters.TE).toBe(11);
     expect(starters.K).toBe(10);
+  });
+});
+
+describe('analyzeRosterLineup', () => {
+  it('flags inactive and questionable starters, empty slots and optimizer gains', () => {
+    const players = new Map([
+      ['qb', { id: 'qb', name: 'QB', firstName: '', lastName: '', position: 'QB' as const, team: 'KC', injuryStatus: 'Questionable' }],
+      ['rb1', { id: 'rb1', name: 'RB1', firstName: '', lastName: '', position: 'RB' as const, team: 'MIA', injuryStatus: 'Out' }],
+      ['rb2', { id: 'rb2', name: 'RB2', firstName: '', lastName: '', position: 'RB' as const, team: 'MIA' }],
+    ]);
+    const roster = { roster_id: 1, owner_id: 'u', league_id: 'L', players: ['qb', 'rb1', 'rb2'], starters: ['qb', 'rb1', '0'], reserve: null, taxi: null, settings: { wins: 0, losses: 0, ties: 0, fpts: 0 } } as SleeperRoster;
+    const result = analyzeRosterLineup({
+      rosterPositions: ['QB', 'RB', 'FLEX', 'BN'],
+      roster,
+      matchup: null,
+      playersById: players,
+      schedule: null,
+      week: 3,
+      projectionFor: id => ({ qb: 20, rb1: 15, rb2: 9 })[id] ?? 0,
+    });
+    expect(result.inactiveStarters).toEqual([{ id: 'rb1', reason: 'Listed as Out' }]);
+    expect(result.questionableStarters).toEqual([{ id: 'qb', status: 'Questionable' }]);
+    expect(result.emptySlots).toBe(1);
+    expect(result.optimization.moves.map(m => m.add.id)).toEqual(['rb2']);
   });
 });

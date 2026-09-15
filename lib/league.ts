@@ -1,5 +1,7 @@
 import { Player, Position, SleeperMatchup, SleeperRoster, TeamSchedule } from '@/types';
-import { getTeamGame, isTeamAbbreviation } from './nfl';
+import { getStartingSlots, LineupCandidate, LineupOptimization, optimizeLineup } from './lineup';
+import { isUnavailable } from './scoring';
+import { getTeamGame, isOnBye, isTeamAbbreviation } from './nfl';
 
 /** Position given to IDs missing from the player database (never fills a slot) */
 export const UNKNOWN_POSITION = 'UNKNOWN' as Position;
@@ -129,4 +131,67 @@ export function startersPerPositionForLeague(rosterPositions: string[], totalRos
   const result: Record<string, number> = {};
   for (const position in perTeam) result[position] = Math.max(1, Math.round(perTeam[position] * totalRosters));
   return result;
+}
+
+// ==========================================
+// LINEUP ANALYSIS
+// ==========================================
+
+export interface RosterLineupAnalysis {
+  slots: string[];
+  starters: string[];
+  candidates: LineupCandidate[];
+  optimization: LineupOptimization;
+  /** Current starters who won't play (bye, Out, IR...) */
+  inactiveStarters: { id: string; reason: string }[];
+  /** Current starters with a game-time decision */
+  questionableStarters: { id: string; status: string }[];
+  emptySlots: number;
+}
+
+/**
+ * Everything needed to judge a roster's lineup this week: optimal lineup,
+ * starters who won't play, questionable starters and empty slots.
+ */
+export function analyzeRosterLineup(params: {
+  rosterPositions: string[];
+  roster: SleeperRoster;
+  matchup: SleeperMatchup | null | undefined;
+  playersById: Map<string, Player>;
+  schedule: TeamSchedule | null;
+  week: number;
+  projectionFor: (playerId: string) => number;
+}): RosterLineupAnalysis {
+  const { rosterPositions, roster, matchup, playersById, schedule, week, projectionFor } = params;
+  const slots = getStartingSlots(rosterPositions);
+  const starters = getCurrentStarters(roster, matchup);
+  const ids = [...starters.filter(id => id && id !== '0'), ...getBenchIds(roster, starters)];
+  const candidates: LineupCandidate[] = ids.map(id => {
+    const player = resolvePlayer(id, playersById);
+    const bye = isOnBye(schedule, player.team, week);
+    const state = playerGameState(schedule, player.team, week, matchup?.players_points?.[id]);
+    return {
+      id,
+      position: player.position,
+      projected: projectionFor(id),
+      locked: state === 'in_game' || state === 'complete',
+      unavailableReason: bye ? 'Bye week' : isUnavailable(player.injuryStatus) ? `Listed as ${player.injuryStatus}` : undefined,
+    };
+  });
+  const byId = new Map(candidates.map(c => [c.id, c]));
+  const starterIds = starters.filter(id => id && id !== '0');
+
+  return {
+    slots,
+    starters,
+    candidates,
+    optimization: optimizeLineup({ slots, currentStarters: starters, candidates }),
+    inactiveStarters: starterIds
+      .map(id => ({ id, reason: byId.get(id)?.unavailableReason ?? '' }))
+      .filter(s => s.reason),
+    questionableStarters: starterIds
+      .map(id => ({ id, status: resolvePlayer(id, playersById).injuryStatus ?? '' }))
+      .filter(s => s.status === 'Questionable' || s.status === 'Doubtful'),
+    emptySlots: slots.filter((_, i) => !starters[i] || starters[i] === '0').length,
+  };
 }

@@ -3,10 +3,8 @@
 import { useMemo } from 'react';
 import { FantasyData } from '@/lib/hooks/useFantasyData';
 import { LeagueData } from '@/lib/hooks/useLeagueData';
-import { getStartingSlots, isSlotSupported, LineupCandidate, optimizeLineup, slotLabel } from '@/lib/lineup';
-import { getBenchIds, getCurrentStarters, playerGameState, resolvePlayer } from '@/lib/league';
-import { isOnBye } from '@/lib/nfl';
-import { isUnavailable } from '@/lib/scoring';
+import { getStartingSlots, isSlotSupported, slotLabel } from '@/lib/lineup';
+import { analyzeRosterLineup, resolvePlayer } from '@/lib/league';
 import { formatPoints, formatSigned } from '@/lib/utils';
 import RosterPlayerRow from './RosterPlayerRow';
 
@@ -15,22 +13,17 @@ export default function LineupView({ league, data }: { league: LeagueData; data:
   const slots = useMemo(() => getStartingSlots(league.league?.roster_positions), [league.league]);
 
   const result = useMemo(() => {
-    if (!userRoster || !week) return null;
-    const starters = getCurrentStarters(userRoster, userMatchup);
-    const ids = [...starters.filter(id => id && id !== '0'), ...getBenchIds(userRoster, starters)];
-    const candidates: LineupCandidate[] = ids.map(id => {
-      const player = resolvePlayer(id, data.playersById);
-      const bye = isOnBye(data.schedule, player.team, week);
-      return {
-        id,
-        position: player.position,
-        projected: data.projected.get(id) ?? 0,
-        locked: ['in_game', 'complete'].includes(playerGameState(data.schedule, player.team, week, userMatchup?.players_points?.[id])),
-        unavailableReason: bye ? 'Bye week' : isUnavailable(player.injuryStatus) ? `Listed as ${player.injuryStatus}` : undefined,
-      };
+    if (!userRoster || !week || !league.league) return null;
+    return analyzeRosterLineup({
+      rosterPositions: league.league.roster_positions,
+      roster: userRoster,
+      matchup: userMatchup,
+      playersById: data.playersById,
+      schedule: data.schedule,
+      week,
+      projectionFor: id => data.projected.get(id) ?? 0,
     });
-    return { optimization: optimizeLineup({ slots, currentStarters: starters, candidates }), candidates };
-  }, [userRoster, userMatchup, week, slots, data.playersById, data.schedule, data.projected]);
+  }, [userRoster, userMatchup, week, league.league, data.playersById, data.schedule, data.projected]);
 
   if (!userRoster || !result || !week) {
     return (
