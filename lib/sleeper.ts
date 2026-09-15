@@ -12,6 +12,7 @@ import {
   UserLeague,
 } from '@/types';
 import { ApiError, fetchJson } from './api';
+import type { SleeperTradedPick } from './dynasty';
 
 const SLEEPER_BASE_URL = 'https://api.sleeper.app/v1';
 const LEAGUE_TTL = 60_000;
@@ -73,4 +74,32 @@ export async function getUserLeaguesWithContext(userId: string, season: string):
 
 export function getTeamName(user: SleeperLeagueUser | null | undefined, rosterId: number): string {
   return user?.metadata?.team_name || user?.display_name || `Team ${rosterId}`;
+}
+
+// ==========================================
+// LEAGUE HISTORY
+// ==========================================
+
+export interface SleeperTransaction {
+  transaction_id: string;
+  type: 'trade' | 'waiver' | 'free_agent' | 'commissioner' | string;
+  status: 'complete' | 'failed' | string;
+  created: number;
+  status_updated?: number;
+  leg: number;
+  roster_ids: number[];
+  adds: Record<string, number> | null;
+  drops: Record<string, number> | null;
+  draft_picks: { season: string; round: number; roster_id: number; previous_owner_id: number; owner_id: number }[];
+  waiver_budget: { sender: number; receiver: number; amount: number }[];
+  settings?: { waiver_bid?: number } | null;
+  metadata?: { notes?: string } | null;
+}
+
+export async function getLeagueTransactions(leagueId: string, week: number): Promise<SleeperTransaction[]> {
+  return (await fetchJson<SleeperTransaction[] | null>(`${SLEEPER_BASE_URL}/league/${leagueId}/transactions/${week}`, LEAGUE_TTL)) ?? [];
+}
+
+export async function getLeagueTradedPicks(leagueId: string): Promise<SleeperTradedPick[]> {
+  return (await fetchJson<SleeperTradedPick[] | null>(`${SLEEPER_BASE_URL}/league/${leagueId}/traded_picks`, 10 * LEAGUE_TTL)) ?? [];
 }

@@ -12,6 +12,10 @@ export const SLOT_ELIGIBILITY: Record<string, Position[]> = {
   WRRB_FLEX: ['WR', 'RB'],
   REC_FLEX: ['WR', 'TE'],
   SUPER_FLEX: ['QB', 'RB', 'WR', 'TE'],
+  DL: ['DL'],
+  LB: ['LB'],
+  DB: ['DB'],
+  IDP_FLEX: ['DL', 'LB', 'DB'],
 };
 
 export const SLOT_LABELS: Record<string, string> = {

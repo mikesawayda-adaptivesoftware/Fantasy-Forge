@@ -22,6 +22,9 @@ export function getPositionTintClass(position: Position | string): string {
     WR: 'bg-cyan/20 text-cyan',
     TE: 'bg-gold/20 text-gold',
     K: 'bg-purple/20 text-purple',
+    DL: 'bg-orange-500/20 text-orange-400',
+    LB: 'bg-orange-500/20 text-orange-400',
+    DB: 'bg-orange-500/20 text-orange-400',
   };
   return classes[position] || 'bg-text-muted/20 text-text-muted';
 }

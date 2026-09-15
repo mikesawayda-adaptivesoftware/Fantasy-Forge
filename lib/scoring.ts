@@ -6,6 +6,7 @@ import {
   PlayerWithStats,
   StartSitRecommendation,
   TradeAnalysis,
+  TradePickValue,
   TradePlayerValue,
   Winner,
 } from '@/types';
@@ -230,11 +231,12 @@ export const DEFAULT_STARTERS_PER_POSITION: Record<string, number> = {
  */
 export function computeReplacementLevels(
   players: PlayerWithStats[],
-  startersPerPosition: Record<string, number> = DEFAULT_STARTERS_PER_POSITION
+  startersPerPosition: Record<string, number> = DEFAULT_STARTERS_PER_POSITION,
+  valueFn: (player: PlayerWithStats) => number = playerTradeValue
 ): Record<string, number> {
   const byPosition: Record<string, number[]> = {};
   for (const player of players) {
-    (byPosition[player.position] ??= []).push(playerTradeValue(player));
+    (byPosition[player.position] ??= []).push(valueFn(player));
   }
   const levels: Record<string, number> = {};
   for (const position in byPosition) {
@@ -245,13 +247,22 @@ export function computeReplacementLevels(
   return levels;
 }
 
+export interface TradeOptions {
+  /** Per-player value (e.g. dynasty age-adjusted). Defaults to playerTradeValue */
+  valueFn?: (player: PlayerWithStats) => number;
+  givePicks?: TradePickValue[];
+  receivePicks?: TradePickValue[];
+}
+
 export function analyzeTrade(
   givePlayers: PlayerWithStats[],
   receivePlayers: PlayerWithStats[],
-  replacementLevels: Record<string, number>
+  replacementLevels: Record<string, number>,
+  options: TradeOptions = {}
 ): TradeAnalysis {
+  const { valueFn = playerTradeValue, givePicks = [], receivePicks = [] } = options;
   const valueOf = (player: PlayerWithStats): TradePlayerValue => {
-    const rawValue = playerTradeValue(player);
+    const rawValue = round1(valueFn(player));
     const replacementValue = replacementLevels[player.position] ?? 0;
     return {
       player,
@@ -263,8 +274,9 @@ export function analyzeTrade(
 
   const give = givePlayers.map(valueOf);
   const receive = receivePlayers.map(valueOf);
-  const giveValue = round1(give.reduce((sum, p) => sum + p.valueOverReplacement, 0));
-  const receiveValue = round1(receive.reduce((sum, p) => sum + p.valueOverReplacement, 0));
+  const pickTotal = (picks: TradePickValue[]) => picks.reduce((sum, p) => sum + p.value, 0);
+  const giveValue = round1(give.reduce((sum, p) => sum + p.valueOverReplacement, 0) + pickTotal(givePicks));
+  const receiveValue = round1(receive.reduce((sum, p) => sum + p.valueOverReplacement, 0) + pickTotal(receivePicks));
   const valueDifference = round1(Math.abs(giveValue - receiveValue));
   const fairThreshold = Math.max(1.5, Math.max(giveValue, receiveValue) * 0.1);
 
@@ -289,7 +301,7 @@ export function analyzeTrade(
     rosterSpotNote = `You open ${-spotDiff} roster spot${spotDiff < -1 ? 's' : ''}, which you can fill from waivers.`;
   }
 
-  return { givePlayers: give, receivePlayers: receive, giveValue, receiveValue, winner, valueDifference, recommendation, rosterSpotNote };
+  return { givePlayers: give, receivePlayers: receive, givePicks, receivePicks, giveValue, receiveValue, winner, valueDifference, recommendation, rosterSpotNote };
 }
 
 export function isListedPlayer(player: Player): boolean {

@@ -70,12 +70,22 @@ describe('optimizeLineup', () => {
     expect(result.gain).toBe(0);
   });
 
-  it('leaves unsupported (IDP) slots untouched', () => {
+  it('leaves unsupported slots untouched', () => {
     const result = optimizeLineup({
-      slots: ['QB', 'IDP_FLEX'],
-      currentStarters: ['qb1', 'lb1'],
+      slots: ['QB', 'K_FLEX'],
+      currentStarters: ['qb1', 'k1'],
       candidates: [c('qb1', 'QB', 20)],
     });
     expect(result.optimal[1].locked).toBe(true);
+  });
+
+  it('optimizes IDP slots', () => {
+    const result = optimizeLineup({
+      slots: ['DL', 'LB', 'IDP_FLEX'],
+      currentStarters: ['dl1', 'lb1', 'db1'],
+      candidates: [c('dl1', 'DL', 6), c('lb1', 'LB', 9), c('db1', 'DB', 4), c('lb2', 'LB', 8)],
+    });
+    expect(result.moves.map(m => m.add.id)).toEqual(['lb2']);
+    expect(result.benched.map(b => b.id)).toEqual(['db1']);
   });
 });

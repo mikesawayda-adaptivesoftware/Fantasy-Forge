@@ -91,3 +91,42 @@ export function getBenchIds(roster: SleeperRoster, starterIds: (string | null)[]
 export function getCurrentStarters(roster: SleeperRoster, matchup: SleeperMatchup | null | undefined): string[] {
   return (matchup?.starters ?? roster.starters ?? []).map(id => id ?? '0');
 }
+
+// ==========================================
+// LEAGUE SHAPE
+// ==========================================
+
+const IDP_SLOTS = new Set(['DL', 'LB', 'DB', 'IDP_FLEX']);
+
+export function leagueHasIdp(rosterPositions: string[] | null | undefined): boolean {
+  return (rosterPositions ?? []).some(slot => IDP_SLOTS.has(slot));
+}
+
+export function isDynastyLeague(league: { settings: { type?: number } } | null | undefined): boolean {
+  return league?.settings.type === 2;
+}
+
+/** How flex slots are typically filled across a league */
+const FLEX_SHARES: Record<string, Record<string, number>> = {
+  FLEX: { RB: 0.45, WR: 0.45, TE: 0.1 },
+  WRRB_FLEX: { RB: 0.5, WR: 0.5 },
+  REC_FLEX: { WR: 0.8, TE: 0.2 },
+  SUPER_FLEX: { QB: 0.8, RB: 0.1, WR: 0.1 },
+  IDP_FLEX: { DL: 0.3, LB: 0.4, DB: 0.3 },
+};
+
+/**
+ * League-wide number of starters at each position (e.g. a 10-team superflex
+ * league starts ~18 QBs). Drives replacement levels for trade values.
+ */
+export function startersPerPositionForLeague(rosterPositions: string[], totalRosters: number): Record<string, number> {
+  const perTeam: Record<string, number> = {};
+  for (const slot of rosterPositions) {
+    if (slot === 'BN' || slot === 'IR' || slot === 'TAXI') continue;
+    const shares = FLEX_SHARES[slot] ?? { [slot]: 1 };
+    for (const position in shares) perTeam[position] = (perTeam[position] ?? 0) + shares[position];
+  }
+  const result: Record<string, number> = {};
+  for (const position in perTeam) result[position] = Math.max(1, Math.round(perTeam[position] * totalRosters));
+  return result;
+}

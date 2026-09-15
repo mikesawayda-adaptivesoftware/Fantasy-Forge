@@ -2,11 +2,10 @@
 
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { FANTASY_POSITIONS, Position, SleeperLeague, SleeperRoster, TrendingPlayer } from '@/types';
+import { FANTASY_POSITIONS, IDP_POSITIONS, Position, TrendingPlayer } from '@/types';
 import { api } from '@/lib/api';
-import { getLeagueRosters, getUserByUsername, getUserLeagues } from '@/lib/sleeper';
 import { useFantasyData } from '@/lib/hooks/useFantasyData';
-import { useSavedUsername } from '@/lib/hooks/useSavedUsername';
+import { findUserRoster, useLeagueRosters, useUserLeagues } from '@/lib/hooks/useUserLeagues';
 import { useHydrated } from '@/lib/hooks/useLocalStorage';
 import { useQueryParams } from '@/lib/hooks/useQueryParam';
 import { getStartingSlots } from '@/lib/lineup';
@@ -14,7 +13,7 @@ import { isOnBye } from '@/lib/nfl';
 import { strengthOfSchedule, MATCHUP_GRADE_LABELS } from '@/lib/matchups';
 import { availabilityFactor } from '@/lib/scoring';
 import { blendedValue, findWaiverSuggestions, WaiverPlayerInput } from '@/lib/waivers';
-import { isKnownPlayer, resolvePlayer } from '@/lib/league';
+import { isKnownPlayer, leagueHasIdp, resolvePlayer } from '@/lib/league';
 import { formatMultiplier, formatPoints, formatSigned, MATCHUP_GRADE_CLASSES } from '@/lib/utils';
 import LoadingState from '@/components/ui/LoadingState';
 import ErrorState from '@/components/ui/ErrorState';
@@ -25,40 +24,17 @@ import PositionBadge from '@/components/ui/PositionBadge';
 import InjuryBadge from '@/components/ui/InjuryBadge';
 import MatchupBadge from '@/components/ui/MatchupBadge';
 import RosterPlayerRow from '@/components/league/RosterPlayerRow';
+import LeagueSelect from '@/components/league/LeagueSelect';
 
 type SortKey = 'projected' | 'value' | 'recent' | 'trending';
 
-interface LeagueList {
-  username: string;
-  userId: string | null;
-  leagues: SleeperLeague[];
-}
-
 function WaiversContent() {
   const hydrated = useHydrated();
-  const username = useSavedUsername();
+  const { username, user, leagues, loading: leaguesLoading, error: leaguesError, retry } = useUserLeagues();
   const [params, setParams] = useQueryParams(['league'] as const);
-  const [leagueList, setLeagueList] = useState<LeagueList | null>(null);
-  const [rosters, setRosters] = useState<{ leagueId: string; rosters: SleeperRoster[] } | null>(null);
   const [trending, setTrending] = useState<TrendingPlayer[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [position, setPosition] = useState<Position | 'ALL'>('ALL');
   const [sortBy, setSortBy] = useState<SortKey>('projected');
-
-  // Leagues for the saved user
-  useEffect(() => {
-    if (!username) return;
-    let cancelled = false;
-    (async () => {
-      const [user, state] = await Promise.all([getUserByUsername(username), api.state()]);
-      const leagues = user ? await getUserLeagues(user.user_id, state.league_season) : [];
-      const active = leagues.filter(l => l.status === 'in_season');
-      if (!cancelled) setLeagueList({ username, userId: user?.user_id ?? null, leagues: active.length ? active : leagues.filter(l => l.status !== 'complete') });
-    })().catch(() => !cancelled && setError('Failed to load your leagues'));
-    return () => {
-      cancelled = true;
-    };
-  }, [username]);
 
   // Trending adds across Sleeper (not league specific)
   useEffect(() => {
@@ -72,33 +48,29 @@ function WaiversContent() {
     };
   }, []);
 
-  const leagues = leagueList?.username === username ? leagueList.leagues : [];
   // Ignore a ?league= that isn't one of the user's leagues (stale or shared link)
   const requestedLeague = params.league && leagues.some(l => l.league_id === params.league) ? params.league : null;
-  const unknownLeagueParam = !!params.league && !!leagueList && leagueList.username === username && !requestedLeague;
+  const unknownLeagueParam = !!params.league && !leaguesLoading && !requestedLeague;
   const leagueId = requestedLeague ?? (leagues.length === 1 ? leagues[0].league_id : null);
   const league = leagues.find(l => l.league_id === leagueId) ?? null;
+  const idp = leagueHasIdp(league?.roster_positions);
 
-  useEffect(() => {
-    if (!leagueId) return;
-    let cancelled = false;
-    getLeagueRosters(leagueId)
-      .then(r => !cancelled && setRosters({ leagueId, rosters: r }))
-      .catch(() => !cancelled && setError('Failed to load league rosters'));
-    return () => {
-      cancelled = true;
-    };
-  }, [leagueId]);
-
-  const data = useFantasyData({ scoring: league?.scoring_settings });
-  const leagueRosters = rosters?.leagueId === leagueId ? rosters.rosters : null;
-  const userRoster = leagueRosters?.find(r => r.owner_id === leagueList?.userId || r.co_owners?.includes(leagueList?.userId ?? '')) ?? null;
+  const { rosters: leagueRosters, error: rostersError } = useLeagueRosters(leagueId);
+  const data = useFantasyData({ scoring: league?.scoring_settings, includeIdp: idp });
+  const userRoster = findUserRoster(leagueRosters, user?.user_id);
   const trendingById = useMemo(() => new Map((trending ?? []).map(t => [t.player_id, t.count])), [trending]);
   const week = data.ctx?.week ?? 1;
+  const error = leaguesError ?? rostersError;
 
-  const { ready, playersById, seasons, schedule, projected, listedPlayers } = data;
+  const { ready, playersById, seasons, schedule, projected, listedPlayers, players } = data;
+  // IDP leagues also consider defensive players on NFL rosters
+  const candidatePlayers = useMemo(
+    () => (idp ? [...listedPlayers, ...players.filter(p => IDP_POSITIONS.includes(p.position) && p.team !== 'FA')] : listedPlayers),
+    [idp, listedPlayers, players]
+  );
   const analysis = useMemo(() => {
     if (!leagueRosters || !ready) return null;
+    const valuedPositions = idp ? [...FANTASY_POSITIONS, ...IDP_POSITIONS] : FANTASY_POSITIONS;
     const rostered = new Set(leagueRosters.flatMap(r => [...(r.players ?? []), ...(r.reserve ?? []), ...(r.taxi ?? [])]));
 
     const toInput = (id: string): WaiverPlayerInput & { avg: number; recent: number; games: number } => {
@@ -122,17 +94,17 @@ function WaiversContent() {
       };
     };
 
-    const freeAgents = listedPlayers.filter(p => !rostered.has(p.id)).map(p => toInput(p.id));
+    const freeAgents = candidatePlayers.filter(p => !rostered.has(p.id)).map(p => toInput(p.id));
 
     let suggestions: ReturnType<typeof findWaiverSuggestions> = [];
     if (userRoster && league) {
-      // Only players we can value: skip IR/taxi, IDP and IDs missing from the player DB
+      // Only players we can value: skip IR/taxi, unsupported positions and unknown IDs
       const rosterIds = (userRoster.players ?? []).filter(
         id =>
           !(userRoster.reserve ?? []).includes(id) &&
           !(userRoster.taxi ?? []).includes(id) &&
           isKnownPlayer(id, playersById) &&
-          FANTASY_POSITIONS.includes(resolvePlayer(id, playersById).position)
+          valuedPositions.includes(resolvePlayer(id, playersById).position)
       );
       const starters = new Set((userRoster.starters ?? []).filter(id => id && id !== '0'));
       suggestions = findWaiverSuggestions({
@@ -143,7 +115,7 @@ function WaiversContent() {
       });
     }
     return { freeAgents, suggestions };
-  }, [leagueRosters, ready, playersById, seasons, schedule, projected, listedPlayers, week, userRoster, league]);
+  }, [leagueRosters, ready, playersById, seasons, schedule, projected, candidatePlayers, idp, week, userRoster, league]);
 
   if (!hydrated) return <LoadingState />;
 
@@ -163,9 +135,9 @@ function WaiversContent() {
     );
   }
 
-  if (error) return <ErrorState message={error} onRetry={() => window.location.reload()} />;
+  if (error) return <ErrorState message={error} onRetry={retry} />;
   if (data.error) return <ErrorState message={data.error.message} onRetry={data.retry} />;
-  if (!leagueList || leagueList.username !== username) return <LoadingState message="Loading your leagues..." />;
+  if (leaguesLoading) return <LoadingState message="Loading your leagues..." />;
 
   const filtered = (analysis?.freeAgents ?? [])
     .filter(fa => position === 'ALL' || fa.position === position)
@@ -197,24 +169,7 @@ function WaiversContent() {
         </div>
       ) : (
         leagues.length > 1 && (
-          <div className="bg-field-card/50 border border-field-border rounded-xl p-4">
-            <label className="block text-text-muted text-sm mb-2" htmlFor="league-select">
-              Select League
-            </label>
-            <select
-              id="league-select"
-              value={leagueId ?? ''}
-              onChange={e => setParams({ league: e.target.value || null })}
-              className="input-field w-full"
-            >
-              <option value="">Choose a league...</option>
-              {leagues.map(l => (
-                <option key={l.league_id} value={l.league_id}>
-                  {l.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          <LeagueSelect leagues={leagues} value={leagueId} onChange={id => setParams({ league: id })} label="Select League" />
         )
       )}
 
@@ -338,7 +293,11 @@ function WaiversContent() {
               </label>
             </div>
 
-            <PositionFilter selectedPosition={position} onPositionChange={setPosition} />
+            <PositionFilter
+              selectedPosition={position}
+              onPositionChange={setPosition}
+              positions={idp ? ['ALL', ...FANTASY_POSITIONS, ...IDP_POSITIONS] : undefined}
+            />
 
             <div className="bg-field-card/50 border border-field-border rounded-xl overflow-x-auto">
               <table className="w-full text-sm min-w-[640px]">

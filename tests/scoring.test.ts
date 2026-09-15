@@ -101,3 +101,19 @@ describe('analyzeTrade', () => {
     expect(computeReplacementLevels(pool, { QB: 12 }).QB).toBe(18);
   });
 });
+
+describe('analyzeTrade options', () => {
+  it('adds draft pick value and custom (dynasty) player values', () => {
+    const levels = { WR: 8, RB: 8 };
+    const vet = p('vet', { position: 'RB', age: 30, projectedPoints: 16, avgPoints: 16, recentAvgPoints: 16 });
+    const young = p('young', { position: 'WR', age: 23, projectedPoints: 14, avgPoints: 14, recentAvgPoints: 14 });
+    const dynasty = (player: PlayerWithStats) => (player.projectedPoints ?? 0) * (player.age! >= 30 ? 0.6 : 1.15);
+    const result = analyzeTrade([vet], [young], levels, {
+      valueFn: dynasty,
+      givePicks: [{ id: '2027-2-1', label: '2027 2nd', value: 3 }],
+    });
+    expect(result.giveValue).toBe(4.6); // (9.6 - 8) + 3
+    expect(result.receiveValue).toBe(8.1); // 16.1 - 8
+    expect(result.givePicks).toHaveLength(1);
+  });
+});

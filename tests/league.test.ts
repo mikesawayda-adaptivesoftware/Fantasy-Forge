@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getBenchIds, playerGameState, projectedFinal, resolvePlayer } from '@/lib/league';
+import { getBenchIds, leagueHasIdp, playerGameState, projectedFinal, resolvePlayer, startersPerPositionForLeague } from '@/lib/league';
 import { canFillSlot, optimizeLineup } from '@/lib/lineup';
 import { normalizeSchedule } from '@/lib/nfl';
 import { SleeperRoster } from '@/types';
@@ -38,17 +38,17 @@ describe('resolvePlayer', () => {
     for (const slot of ['QB', 'WR', 'FLEX', 'SUPER_FLEX']) expect(canFillSlot(slot, unknown.position)).toBe(false);
   });
 
-  it('keeps unknown or IDP players out of optimized offensive slots', () => {
+  it('keeps unknown players out of every slot', () => {
     const result = optimizeLineup({
-      slots: ['QB', 'WR', 'DL', 'LB'],
-      currentStarters: ['qb', '0', 'dl1', 'lb1'],
+      slots: ['QB', 'WR', 'DL'],
+      currentStarters: ['qb', '0', '0'],
       candidates: [
         { id: 'qb', position: 'QB', projected: 20 },
-        { id: 'lb2', position: 'LB', projected: 8 },
-        { id: 'mystery', position: resolvePlayer('mystery', new Map()).position, projected: 0 },
+        { id: 'mystery', position: resolvePlayer('mystery', new Map()).position, projected: 10 },
       ],
     });
     expect(result.optimal[1].playerId).toBeNull();
+    expect(result.optimal[2].playerId).toBeNull();
     expect(result.moves).toHaveLength(0);
   });
 
@@ -90,5 +90,20 @@ describe('playerGameState with kickoff times', () => {
 
   it('locks at kickoff', () => {
     expect(playerGameState(live, 'KC', 2, 0, new Date('2026-09-21T00:20:00Z'))).toBe('in_game');
+  });
+});
+
+describe('league shape helpers', () => {
+  it('detects IDP leagues', () => {
+    expect(leagueHasIdp(['QB', 'RB', 'IDP_FLEX', 'BN'])).toBe(true);
+    expect(leagueHasIdp(['QB', 'RB', 'FLEX', 'BN'])).toBe(false);
+  });
+
+  it('counts league-wide starters per position including flex shares', () => {
+    const starters = startersPerPositionForLeague(['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX', 'SUPER_FLEX', 'K', 'DEF', 'BN', 'IR'], 10);
+    expect(starters.QB).toBe(18); // 10 QB + 8 superflex
+    expect(starters.RB).toBe(26); // 20 + 4.5 flex + 1 superflex
+    expect(starters.TE).toBe(11);
+    expect(starters.K).toBe(10);
   });
 });

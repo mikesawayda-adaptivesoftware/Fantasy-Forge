@@ -8,6 +8,7 @@
  */
 import {
   FANTASY_POSITIONS,
+  IDP_POSITIONS,
   NflState,
   Player,
   Position,
@@ -135,7 +136,6 @@ function transformPlayer(sleeper: SleeperPlayer): Player {
   return player;
 }
 
-export const IDP_POSITIONS: Position[] = ['DL', 'LB', 'DB'];
 const PLAYER_POSITIONS: Position[] = [...FANTASY_POSITIONS, ...IDP_POSITIONS];
 
 /**

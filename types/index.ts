@@ -7,6 +7,8 @@ export type Position = 'QB' | 'RB' | 'WR' | 'TE' | 'K' | 'DEF' | 'DL' | 'LB' | '
 
 export const FANTASY_POSITIONS: Position[] = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
 
+export const IDP_POSITIONS: Position[] = ['DL', 'LB', 'DB'];
+
 /**
  * A single stat line from Sleeper (weekly stats or projections).
  * Keys are Sleeper stat keys (pass_yd, rec, fum_lost, pts_allow_0, ...), which
@@ -183,10 +185,18 @@ export interface TradePlayerValue {
   valueOverReplacement: number;
 }
 
+export interface TradePickValue {
+  id: string;
+  label: string;
+  value: number;
+}
+
 // Trade analysis
 export interface TradeAnalysis {
   givePlayers: TradePlayerValue[];
   receivePlayers: TradePlayerValue[];
+  givePicks: TradePickValue[];
+  receivePicks: TradePickValue[];
   giveValue: number;
   receiveValue: number;
   winner: 'give' | 'receive' | 'fair';

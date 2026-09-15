@@ -7,6 +7,7 @@ import { useFantasyData } from '@/lib/hooks/useFantasyData';
 import { useLeagueData } from '@/lib/hooks/useLeagueData';
 import { useQueryParams } from '@/lib/hooks/useQueryParam';
 import { getUserAvatarUrl } from '@/lib/nfl';
+import { leagueHasIdp } from '@/lib/league';
 import LoadingState from '@/components/ui/LoadingState';
 import ErrorState from '@/components/ui/ErrorState';
 import MatchupView from '@/components/league/MatchupView';
@@ -28,7 +29,11 @@ type TabKey = (typeof TABS)[number]['key'];
 function LeagueDashboard({ leagueId }: { leagueId: string }) {
   // Refresh every 2 minutes so live scores and lineup locks stay current on game days
   const league = useLeagueData(leagueId, { refreshMs: 120_000 });
-  const data = useFantasyData({ scoring: league.league?.scoring_settings, refreshMs: 120_000 });
+  const data = useFantasyData({
+    scoring: league.league?.scoring_settings,
+    includeIdp: leagueHasIdp(league.league?.roster_positions),
+    refreshMs: 120_000,
+  });
   const [params, setParams] = useQueryParams(['tab'] as const);
   const activeTab: TabKey = TABS.some(t => t.key === params.tab) ? (params.tab as TabKey) : 'matchup';
 
