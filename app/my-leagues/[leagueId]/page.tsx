@@ -15,6 +15,8 @@ import LineupView from '@/components/league/LineupView';
 import RosterView from '@/components/league/RosterView';
 import StandingsView from '@/components/league/StandingsView';
 import PowerRankingsView from '@/components/league/PowerRankingsView';
+import PlayoffOddsView from '@/components/league/PlayoffOddsView';
+import TransactionsView from '@/components/league/TransactionsView';
 
 const TABS = [
   { key: 'matchup', label: 'This Week', icon: '⚔️' },
@@ -22,6 +24,8 @@ const TABS = [
   { key: 'roster', label: 'My Roster', icon: '📋' },
   { key: 'standings', label: 'Standings', icon: '🏆' },
   { key: 'power', label: 'Power Rankings', icon: '📈' },
+  { key: 'playoffs', label: 'Playoff Odds', icon: '🎲' },
+  { key: 'transactions', label: 'Transactions', icon: '📜' },
 ] as const;
 
 type TabKey = (typeof TABS)[number]['key'];
@@ -101,6 +105,8 @@ function LeagueDashboard({ leagueId }: { leagueId: string }) {
       {activeTab === 'roster' && <RosterView league={league} data={data} />}
       {activeTab === 'standings' && <StandingsView league={league} />}
       {activeTab === 'power' && <PowerRankingsView league={league} />}
+      {activeTab === 'playoffs' && <PlayoffOddsView league={league} />}
+      {activeTab === 'transactions' && <TransactionsView league={league} data={data} />}
     </div>
   );
 }
